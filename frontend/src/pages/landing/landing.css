@@ -1,0 +1,444 @@
+body {
+  font-family: Verdana, Arial, sans-serif;
+  font-size: 11px;
+  margin: 0;
+  padding: 0;
+  background: linear-gradient(135deg, #f5f5f0 0%, #e8e8e0 50%, #f0f0e8 100%);
+  color: #333;
+  line-height: 1.2;
+  min-height: 100vh;
+}
+
+/* Full page container */
+.landing-container {
+  width: 100%;
+  min-height: 100vh;
+  background: url('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAGklEQVQIHWPY9+8fAzYwarkTmwBGMTdiEwAAOgwDBaHaRYsAAAAASUVORK5CYII=') repeat;
+}
+
+a {
+  color: #003399;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  color: #ff6600;
+}
+
+/* Header Styles - Full width Myspace-style */
+.header-top {
+  background: linear-gradient(180deg, #003399 0%, #0066cc 100%);
+  color: white;
+  padding: 15px 0;
+  width: 100%;
+  border-bottom: 3px solid #ff6600;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+}
+
+.header-content {
+  display: flex;
+  align-items: center;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 20px;
+}
+
+.logo {
+  margin-right: auto;
+  padding-right: 20px;
+}
+
+.logo-text {
+  font-size: 28px;
+  font-weight: bold;
+  color: white;
+  white-space: nowrap;
+}
+
+.logo-description-text {
+  flex: 1;
+  text-align: center;
+  font-size: 14px;
+  padding: 0 20px;
+  white-space: nowrap;
+}
+
+.account-links {
+  padding-left: 20px;
+}
+
+.account-links a {
+  color: white;
+  font-size: 12px;
+  padding: 0;
+  background: none;
+  border: none;
+}
+
+.account-links a:hover {
+  text-decoration: underline;
+}
+
+.navbar {
+  background: linear-gradient(180deg, #0066cc 0%, #003399 100%);
+  border-top: 1px solid #87ceeb;
+  border-bottom: 3px solid #ff6600;
+  padding: 0;
+  text-align: center;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+  line-height: 1;
+  color: #000;  /* Black pipes */
+
+}
+
+.navbar a {
+  color: white;
+  text-decoration: none;
+  padding: 10px 12px;  /* Increased vertical padding */
+  margin: 0;
+  font-size: 12px;
+  font-weight: bold;
+  display: inline-block;
+}
+
+.navbar a:hover {
+  background: rgba(255,255,255,0.2);
+  text-decoration: none;
+}
+
+/* Main content area - Myspace 2-column layout */
+.content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: 20px;
+  min-height: calc(100vh - 200px);
+  padding-bottom: 30px;
+  border-bottom: 20px solid #003399; 
+}
+
+/* Left column - Record and Tech Stack */
+.left-column {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Right column - Login and Stats */
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+/* Section styling - Myspace box style */
+.section {
+  background: white;
+  border: 2px solid #003399;
+  overflow: hidden;
+  box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+  margin-bottom: 12px;
+}
+
+.section-header {
+  background: linear-gradient(180deg, #d6e6f6 0%, #b6d6f6 100%);
+  padding: 8px 15px;
+  font-weight: bold;
+  color: #003399;
+  border-bottom: 2px solid #003399;
+  text-transform: uppercase;
+  font-size: 12px;
+  letter-spacing: 0.5px;
+}
+
+.section-content {
+  padding: 12px;
+  background: white;
+}
+
+/* Login Box - Myspace style */
+.login-box {
+  background: linear-gradient(180deg, #003399 0%, #0066cc 100%);
+  color: white;
+  overflow: hidden;
+  box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+}
+
+.login-box-header {
+  font-weight: bold;
+  padding: 10px 15px;
+  background: rgba(255,255,255,0.1);
+  border-bottom: 1px solid rgba(255,255,255,0.2);
+}
+
+.login-form {
+  background: white;
+  color: #333;
+  padding: 15px;
+}
+
+.login-form label {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  font-weight: bold;
+}
+
+.login-form input[type="text"],
+.login-form input[type="password"] {
+  width: 60%;
+  padding: 5px;
+  border: 2px solid #ccc;
+  font-size: 11px;
+}
+
+.login-form input[type="text"]:focus,
+.login-form input[type="password"]:focus {
+  border-color: #003399;
+  outline: none;
+}
+
+.login-form .buttons {
+  margin-top: 15px;
+  text-align: center;
+}
+
+.login-form button {
+  margin: 0 5px;
+  padding: 5px 15px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.login-form button.login {
+  background: linear-gradient(180deg, #eee 0%, #ccc 100%);
+  border: 2px solid #999;
+  color: #333;
+}
+
+.login-form button.signup {
+  background: linear-gradient(180deg, #ff6600 0%, #cc5500 100%);
+  border: 2px solid #cc5500;
+  color: white;
+}
+
+
+/* Record of the Day - Enhanced */
+.record-of-day {
+  display: flex;
+  gap: 20px;
+  padding: 20px;
+  align-items: flex-start;
+  background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+  margin: 15px 0;
+}
+
+.record-of-day-image {
+  flex-shrink: 0;
+}
+
+.record-of-day img {
+  width: 150px;
+  height: 150px;
+  object-fit: cover;
+  border: 3px solid #003399;
+  box-shadow: 5px 5px 15px rgba(0, 0, 0, 0.3);
+  transition: transform 0.3s;
+}
+
+.record-of-day img:hover {
+  transform: rotate(5deg) scale(1.05);
+}
+
+.record-of-day-details {
+  flex: 1;
+  text-align: left;
+}
+
+.record-title {
+  font-size: 18px;
+  font-weight: bold;
+  color: #003399;
+  margin: 0 0 8px 0;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.record-subtitle {
+  font-size: 13px;
+  color: #666;
+  margin: 0 0 15px 0;
+}
+
+.record-description {
+  font-size: 12px;
+  color: #333;
+  line-height: 1.6;
+  margin: 0;
+  background: rgba(255,255,255,0.7);
+  padding: 10px;
+  border-left: 4px solid #003399;
+}
+
+/* Tech Stack - Professional but styled */
+.tech-stack {
+  background: white;
+  color: #333;
+  overflow: hidden;
+  box-shadow: 3px 3px 10px rgba(0,0,0,0.2);
+}
+
+.tech-stack .section-header {
+  background: linear-gradient(180deg, #d6e6f6 0%, #b6d6f6 100%);
+  color: #003399;
+  border-bottom: 2px solid #003399;
+}
+
+.tech-stack .section-content {
+  padding: 15px;
+  line-height: 1.4;
+}
+
+.tech-stack strong {
+  color: #000399;
+  font-weight: bold;
+}
+
+.tech-stack p {
+  display: grid;
+  grid-template-columns: 180px 1fr;  /* Fixed width for labels */
+  gap: 8px;
+  margin-bottom: 3px;
+}
+
+.stats-section {
+  background: white;
+  border: 2px solid #003399;
+}
+
+.stats-section .section-header {
+  background: linear-gradient(180deg, #d6e6f6 0%, #b6d6f6 100%);
+  color: #003399;
+  border-bottom: 2px solid #003399;
+}
+
+.stats-section .section-content {
+  background: white;
+  color: #333;
+  padding: 20px;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+.stats-group {
+  background: #f8f9fa;
+  padding: 15px;
+  border-left: 4px solid #003399;
+}
+
+.stats-group h3 {
+  color: #003399;
+  font-size: 13px;
+  font-weight: bold;
+  margin: 0 0 10px 0;
+}
+
+.stats-group p {
+  margin: 5px 0;
+  font-size: 11px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.stats-group strong {
+  color: #666;
+}
+
+/* Footer - Myspace style */
+.footer {
+  background: linear-gradient(180deg, #003399 0%, #001166 100%);
+  color: #87ceeb;
+  padding: 20px;
+  text-align: center;
+  border-top: 3px solid #ff6600;
+  margin-top: 30px;
+}
+
+.footer a {
+  color: #87ceeb;
+  margin: 0 8px;
+  font-weight: bold;
+}
+
+.footer a:hover {
+  color: #ff6600;
+}
+
+.footer p {
+  margin-top: 10px;
+  font-size: 10px;
+  color: #ccc;
+}
+
+/* Responsive design */
+@media (max-width: 1240px) {
+  .content {
+    max-width: 100%;
+    padding: 15px;
+    grid-template-columns: 60% 40%;
+    gap: 15px;
+  }
+}
+
+@media (max-width: 1000px) {
+  .content {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+  
+  .header-content {
+    flex-direction: column;
+    text-align: center;
+    gap: 10px;
+  }
+  
+  .logo-description-text {
+    padding: 10px 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .record-of-day {
+    flex-direction: column;
+    text-align: center;
+  }
+  
+  .record-of-day-image {
+    align-self: center;
+  }
+}
+
+/* Glowing effects for that 2007 feel */
+.section:hover {
+  box-shadow: 3px 3px 15px rgba(0, 51, 153, 0.4);
+  transform: translateY(-2px);
+  transition: all 0.3s;
+}
+
+/* Blinking text animation for authentic feel */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.blink {
+  animation: blink 2s infinite;
+}

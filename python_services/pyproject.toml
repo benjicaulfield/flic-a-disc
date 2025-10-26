@@ -1,0 +1,16 @@
+[project]
+name = "python-services"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "django>=5.2.6",
+    "django-environ>=0.12.0",
+    "psycopg2-binary>=2.9.10",
+    "python-decouple>=3.8",
+    "djangorestframework>=3.16.1",
+    "scikit-learn>=1.7.2",
+    "numpy>=2.3.3",
+    "torch>=2.8.0",
+]

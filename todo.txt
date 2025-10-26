@@ -1,0 +1,371 @@
+Neural Contextual Bandit Recommendation Engine - TODO
+
+Phase 2: Python ML Microservice
+Core ML Architecture
+- Character-level CNN for artist/label names
+- Learned genre/style embeddings with attention pooling
+- Cyclical encoding for temporal features
+
+Phase 3: Training & Evaluation Framework
+Training Pipeline
+- Curriculum learning strategy
+
+Evaluation Metrics
+- Bandit-specific metrics (regret, exploration efficiency)
+- Uncertainty calibration assessment
+
+Phase 4: Integration & Backend Updates
+Frontend Enhancements
+- Bandit prediction visualization
+- Confidence/uncertainty indicators
+- Real-time performance dashboard
+- Model performance tracking UI
+
+Phase 5: Advanced Features
+Meta-Learning Components
+- Few-shot adaptation for new artists
+- Continual learning without catastrophic forgetting
+- Transfer learning capabilities
+
+Multi-Objective Optimization
+- Balance accuracy, diversity, novelty
+- Adaptive exploration strategies
+- Dynamic exploration rate adjustment
+
+Phase 6: Production & Monitoring
+Deployment
+- Containerize Python ML service
+- Model versioning and rollback capabilities
+- A/B testing framework for model improvements
+
+Monitoring & Maintenance
+- Model drift detection
+- Performance degradation alerts
+- Automated retraining pipelines
+
+
+
+--------------------------------------------------------
+Neural Contextual Bandit with Contrastive Learning
+
+To-Do List: Neural Contextual Bandit with Contrastive Learning Refactor
+
+Phase 3: ML Service Endpoints
+Python (Django ML Service):
+
+ Create /select_batch/ endpoint
+
+ Input: 1000 candidate records
+ Get predictions + uncertainties for all
+ Apply adaptive selection strategy
+ Return: 20 selected record IDs + selection metadata
+
+
+ Update /predict/ endpoint (if needed)
+
+ Ensure returns both predictions AND uncertainties
+ Add embedding extraction capability
+
+
+ Update training in update_model_online()
+
+ Generate triplets from labeled batch
+ Train with combined loss
+ Increment batch counter
+
+
+
+Phase 4: Frontend Changes
+React (TypeScript):
+
+ Update DiscogsKeepers.tsx
+
+ Display selection metadata (exploit vs explore indicators)
+ Show exploration rate in UI (optional)
+
+
+ Add visual indicators
+
+ Badge/icon for "High confidence keeper" (exploit)
+ Badge/icon for "Learning from this" (explore)
+
+
+
+Phase 5: Database Schema Updates
+Django Models:
+
+ Add to BanditModel:
+
+
+
+ Add to BanditTrainingInstance:
+
+ selection_strategy (CharField: 'exploit' or 'explore')
+ uncertainty_at_selection (FloatField)
+
+
+ Run migrations
+
+Phase 6: Testing & Validation
+
+ Unit tests for triplet generation
+ Unit tests for bandit selection logic
+ Integration test: full flow from candidate pool → selection → training
+ Verify exploration rate decays correctly over batches
+ Test contrastive loss backpropagation
+ Validate embeddings cluster keepers together (visualization)
+
+Phase 7: Deployment & Monitoring
+
+ Add logging for bandit decisions
+
+ Log exploration rate per batch
+ Log exploit vs explore split
+ Log selection scores distribution
+
+
+ Add metrics tracking
+
+ Keeper rate in exploit portion
+ Keeper rate in explore portion
+ Embedding space quality (silhouette score)
+
+
+ Deploy to production
+
+ Retrain model with contrastive learning on existing labels
+ Start with batch_count=0
+ Monitor first 10 batches closely
+
+
+
+Phase 8: Enhancements (Optional)
+
+ Implement hard negative mining for better triplets
+ Add similarity search endpoint (find records like X)
+ Visualize embedding space (t-SNE/UMAP)
+ A/B test: random vs bandit selection
+ Add user-facing "Why did you show me this?" explanations
+
+Priority Order
+
+Phase 1 (model architecture) - Foundation
+Phase 2 (bandit logic) - Core functionality
+Phase 3 (endpoints) - Integration
+Phase 4 (frontend) - User-facing
+Phase 5 (database) - Persistence
+Phase 6-8 (testing/polish) - Production-ready
+
+
+ - Complete Model Definition
+Core Architecture
+Two-stage model with adaptive bandit selection:
+
+Contrastive Encoder - Learns meaningful record embeddings
+
+Input: Record features (artist, label, genres, styles, numerical features)
+Output: 64-dimensional embedding vector representing the record in "taste space"
+Trained with triplet loss: anchor (keeper), positive (similar keeper), negative (non-keeper)
+Goal: Records you like cluster together, records you don't like are far away
+
+
+Bandit Head - Predicts reward with uncertainty
+
+Input: 64-dimensional embedding from encoder
+Output: Mean reward estimate + uncertainty variance
+Uses Bayesian layers (dropout as approximate variational inference)
+Enables exploration/exploitation tradeoff
+
+
+
+Training Signals
+Three loss functions combined:
+
+Triplet Loss (contrastive):
+
+Pull similar records together, push dissimilar apart
+Learns: "What makes records fundamentally similar?"
+Weight: 0.4
+
+
+Classification Loss (supervised):
+
+Binary cross-entropy on keeper/not-keeper
+Learns: "Which similarities match your taste?"
+Weight: 0.5
+
+
+Uncertainty Regularization:
+
+Penalizes overconfident predictions
+Learns: "When should I be unsure?"
+Weight: 0.1
+
+
+
+Total loss = 0.4 * triplet + 0.5 * classification + 0.1 * uncertainty
+Bandit Behavior - Adaptive Balanced Selection
+Record Selection Strategy:
+For each batch of 20 records:
+
+Sample candidate pool: 1000 random unevaluated records from database
+Encode and predict:
+
+Extract features for all 1000 candidates
+Encode to 64-dimensional embeddings
+Predict reward (0-1) + uncertainty for each
+
+
+Calculate exploration rate (decays over time):
+
+   explore_rate = max(0.2, 0.6 * (0.95 ^ batch_number))
+   
+   Batch 1: 60% exploration (12 explore, 8 exploit)
+   Batch 10: 36% exploration (7 explore, 13 exploit)
+   Batch 50: 20% exploration (4 explore, 16 exploit)
+   Batch 100+: 20% exploration (maintains discovery)
+
+Split selection:
+EXPLOIT portion (80% → 60% over time):
+
+Score = predicted_reward - uncertainty
+Select top N records by score
+Goal: Show likely keepers with low risk
+
+EXPLORE portion (20% → 40% over time):
+
+Score = uncertainty
+Select top M records by uncertainty
+Goal: Learn about uncertain records (potential hidden gems)
+
+Where N + M = 20
+Present to user: Show all 20 records for labeling
+
+Feedback Loop
+After each batch:
+
+User labels the 20 records (keeper vs non-keeper)
+Create training data:
+
+Supervised: All 20 labeled records
+Contrastive: Generate triplets
+
+Anchors: Keeper records from this batch
+Positives: Random other keepers from history
+Negatives: Random non-keepers from history
+
+
+
+
+Update model:
+
+10 gradient descent epochs on the batch
+Combined loss (triplet + classification + uncertainty)
+Learning rate: 0.0001 (small for online learning)
+
+
+Increment batch counter for next exploration rate calculation
+Save model to database with version timestamp
+
+What Makes It a True Bandit
+
+Active selection: Model chooses which 20 records to show based on information value
+Exploration/exploitation: Explicitly balances showing keepers vs learning
+Adaptive strategy: Explores more early, exploits more later
+Sequential decision making: Each batch informs the next selection
+Uncertainty-driven: Uses epistemic uncertainty to guide exploration
+Never stagnates: Always includes exploration portion (minimum 20%)
+
+What Contrastive Learning Adds
+
+Better cold start: Generalizes to unseen artists/labels via learned similarity
+Richer representations: Understands the topology of music taste space
+Transfer learning: Knowledge from one genre/label helps predict others
+Semantic understanding: "Miles Davis" embedding near "John Coltrane" embedding
+Enables similarity search: Can find records similar to keepers
+Faster convergence: Learns from structure, not just labels
+
+Discovery Guarantees
+The model will find "hidden gems" (low certainty but actually keepers) because:
+
+Early exploration (batches 1-20): 40-60% of records are high-uncertainty
+
+Discovers broad patterns across genres/styles
+
+
+Continuous exploration (all batches): Always 20% exploration minimum
+
+Constantly samples uncertain records
+When uncertain keeper found → similar uncertain records prioritized
+
+
+Contrastive similarity: When you label an unexpected keeper
+
+Model learns: "Records like this are also keepers"
+Finds similar uncertain records and explores them
+
+
+Uncertainty reduction: As model learns
+
+Old uncertainties resolve → new uncertainties emerge
+Always frontier of unknown territory to explore
+
+
+
+Key Hyperparameters
+Architecture:
+
+Embedding dimension: 64
+Hidden layers: [128, 64, 32]
+Dropout rate: 0.2
+
+Training:
+
+Learning rate: 0.0001
+Epochs per batch: 10
+Loss weights: [0.4 triplet, 0.5 classification, 0.1 uncertainty]
+Triplet margin: 1.0
+
+Bandit:
+
+Batch size: 20 records
+Candidate pool: 1000 records
+Initial exploration: 60%
+Exploration decay: 0.95 per batch
+Minimum exploration: 20%
+Selection: Balanced (exploit + explore)
+
+Triplet generation:
+
+Positive: Same-class records (keepers)
+Negative: Opposite-class records (non-keepers)
+Hard negative mining: Select negatives similar to anchor for harder learning
+
+Expected Behavior Over Time
+Batches 1-10 (Discovery Phase):
+
+50-60% exploration rate
+Discovering broad taste patterns
+High variety in shown records
+Learning basic preferences (genres, eras, labels)
+
+Batches 10-50 (Refinement Phase):
+
+30-40% exploration rate
+Mostly showing likely keepers
+But still testing edge cases
+Learning subtle patterns (sub-genres, specific artists, rare labels)
+
+Batches 50+ (Optimization Phase):
+
+20% exploration rate
+High keeper hit rate (70-80% of shown records)
+Explores micro-niches and outliers
+Discovers hidden gems in under-explored regions
+
+Success Metrics
+
+Immediate: Keeper rate in exploit portion (should be 70-85%)
+Short-term: Uncertainty reduction on familiar territory
+Long-term: Discovery of diverse keeper clusters (not just one genre)
+Quality: Model finds keepers you wouldn't have found randomly
