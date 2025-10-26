@@ -10,6 +10,7 @@ Thumbs.db
 # Environment files
 .env
 *.env
+*token*
 
 # Node modules
 node_modules/
