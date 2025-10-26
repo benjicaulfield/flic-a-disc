@@ -5,6 +5,7 @@ import EbayAuctions from './pages/EbayAuctions';
 import EbayAnnotation from './pages/EbayAnnotations';
 import LandingPage from './pages/landing/LandingPage';
 import UserDashboard from './pages/UserDashboard';
+import Youbreakifix from './pages/Youbreakifix';
 import type { User } from './types/interfaces';
 
 
@@ -61,6 +62,7 @@ return (
         <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/annotate" element={<EbayAnnotation />} />
+        <Route path="/youbreakifix" element={<Youbreakifix />} />
       </Routes>
     </Router>
   );
