@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import torch 
@@ -12,12 +11,14 @@ from django.db.models import Count, Avg, Max
 from django.utils import timezone
 
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from sklearn.metrics.pairwise import cosine_similarity
 
-from .models import Record, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig, BatchPerformance, TfIdfDB
+from .models import (Record, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, 
+                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance)
 from .training import BanditTrainer
 from .features import RecordFeatureExtractor
 from .bandit_selection import adaptive_batch_selection
@@ -107,30 +108,36 @@ def train(request):
     
 @api_view(['GET'])
 def metrics(request):
-    """
-    Output: Current model performance metrics
-    """
     try:
         try:
             latest_model = BanditModelDB.objects.filter(is_active=True).latest('created_at')
             training_stats = json.loads(latest_model.training_stats)
             total_instances = BanditTrainingInstance.objects.count()
             
-            recent_instances = BanditTrainingInstance.objects.order_by('-timestamp')[:100]
-            if recent_instances:
-                correct_predictions = sum(1 for inst in recent_instances 
-                                        if inst.predicted == inst.actual)
-                recent_accuracy = correct_predictions / len(recent_instances)
+            # ✅ Use last 100 batches for rolling window
+            recent_batches = BatchPerformance.objects.all()[:100]
+            
+            if recent_batches:
+                total_correct = sum(b.correct for b in recent_batches)
+                total_records = sum(b.total for b in recent_batches)
+                rolling_accuracy = total_correct / total_records if total_records > 0 else 0.0
+                
+                # Get last 10 batches for recent trend
+                last_10 = recent_batches[:10]
+                recent_accuracy = sum(b.accuracy for b in last_10) / len(last_10) if last_10 else 0.0
             else:
+                rolling_accuracy = 0.0
                 recent_accuracy = 0.0
             
             return Response({
                 'model_version': latest_model.version,
                 'training_accuracy': training_stats.get('val_accuracy', [0])[-1] if training_stats.get('val_accuracy') else 0,
                 'recent_accuracy': recent_accuracy,
+                'rolling_100_accuracy': rolling_accuracy,  # ✅ NEW
                 'total_training_instances': total_instances,
+                'total_batches': BatchPerformance.objects.count(),  # ✅ NEW
                 'model_created': latest_model.created_at,
-                'explore_rate': 0.1  # Could be dynamic based on uncertainty
+                'explore_rate': 0.1
             })
             
         except BanditModelDB.DoesNotExist:
@@ -138,8 +145,10 @@ def metrics(request):
                 'model_version': 'none',
                 'training_accuracy': 0.0,
                 'recent_accuracy': 0.0,
+                'rolling_100_accuracy': 0.0,
                 'total_training_instances': 0,
-                'explore_rate': 1.0,  # Full exploration without model
+                'total_batches': 0,
+                'explore_rate': 1.0,
                 'message': 'No trained model available'
             })
             
@@ -185,12 +194,23 @@ def retrain(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def receive_feedback(request):
+    print("=" * 80)
+    print("🚀 RECEIVE_FEEDBACK CALLED!")
+    print(f"📍 Request method: {request.method}")
+    print(f"📍 Request path: {request.path}")
+    print(f"📍 Request data keys: {request.data.keys() if request.data else 'NO DATA'}")
+    print("=" * 80)
+    
+    print(f"📥 Feedback received: {len(request.data.get('records', []))} records")
     print(f"📥 Feedback received: {len(request.data.get('records', []))} records")
 
     records = request.data.get('records', [])
     labels = request.data.get('labels', [])
     predictions = request.data.get('predictions', [])
+    mean_predictions = request.data.get('mean_predictions', [])  # ✅ NEW
+    uncertainties = request.data.get('uncertainties', [])        # ✅ NEW
 
     print(f"📊 Labels: {len(labels)}, Predictions: {len(predictions)}")
 
@@ -204,6 +224,40 @@ def receive_feedback(request):
             status=status.HTTP_400_BAD_REQUEST
         )
     
+    # ✅ NEW: Get current batch number
+    try:
+        active_model = BanditModelDB.objects.get(is_active=True)
+        batch_num = active_model.batch_count
+    except BanditModelDB.DoesNotExist:
+        batch_num = 0
+    
+    # ✅ NEW: Calculate and save batch performance
+    labels_array = np.array(labels)
+    predictions_array = np.array(predictions)
+    
+    # Use threshold of 0.5 for binary classification
+    predicted_labels = (predictions_array > 0.5).astype(int)
+    correct = np.sum(predicted_labels == labels_array)
+    accuracy = correct / len(labels) if len(labels) > 0 else 0.0
+    
+    BatchPerformance.objects.create(
+        batch_number=batch_num,
+        correct=int(correct),
+        total=len(labels),
+        accuracy=accuracy
+    )
+    
+    print(f"📊 Batch {batch_num} Performance: {correct}/{len(labels)} = {accuracy:.2%}")
+    
+    # Increment batch counter
+    try:
+        active_model = BanditModelDB.objects.get(is_active=True)
+        active_model.batch_count += 1
+        active_model.save()
+    except BanditModelDB.DoesNotExist:
+        pass
+    
+    # Original buffer logic
     instances = []
     for i, record in enumerate(records):
         listing_id = record.get('listing_id')
@@ -238,19 +292,30 @@ def receive_feedback(request):
 
         feedback_buffer.clear()
         new_threshold, f1_score = calculate_optimal_threshold()
-        print(f"📊 Optimal threshold: {new_threshold:.3f} (F1: {f1_score:.3f})")                                                                                                                                                                       
+        print(f"📊 Optimal threshold: {new_threshold:.3f} (F1: {f1_score:.3f})")
 
         return Response({
             'status': 'model updated',
             'result': result,
             'new_threshold': new_threshold,
-            'f1_score': f1_score
+            'f1_score': f1_score,
+            'batch_performance': {  # ✅ NEW
+                'batch_num': batch_num,
+                'accuracy': accuracy,
+                'correct': correct,
+                'total': len(labels)
+            }
         })
-        
     
     return Response({
         'status': 'feedback stored',
-        'buffer_size': len(feedback_buffer)
+        'buffer_size': len(feedback_buffer),
+        'batch_performance': {  # ✅ NEW
+            'batch_num': batch_num,
+            'accuracy': accuracy,
+            'correct': correct,
+            'total': len(labels)
+        }
     })
 
 def calculate_optimal_threshold(window_size=500):
@@ -305,7 +370,7 @@ def optimize_threshold(request):
         'best_f1': float(f1),
         'window_size': window_size
     })
-    
+
 @api_view(['POST'])
 def select_batch(request):
     try:
@@ -348,53 +413,39 @@ def record_batch_performance(request):
     print("📊 record_batch_performance called!")
     print(f"📊 Request data: {request.data}")
     
-    correct = request.data.get('correct')
-    total = request.data.get('total')
-        
-    if correct is None or total is None:
-        return Response({'error': 'Missing data'}, status=400)
-    
-    accuracy = correct / total if total > 0 else 0
-
-    try:
-        active_model = BanditModelDB.objects.get(is_active=True)
-        batch_num = active_model.batch_count
-        print(f"📊 Batch number: {batch_num}")
-
-    except BanditModelDB.DoesNotExist:
-        batch_num = 0
-        print(f"📊 No active model, using batch 0")
-
-
-    BatchPerformance.objects.create(
-        batch_number = batch_num,
-        correct = correct,
-        total = total,
-        accuracy = accuracy
-    )
-
-    recent_batches = BatchPerformance.objects.all()[:10]
+    recent_batches = BatchPerformance.objects.all()[:100]
 
     if recent_batches:
         window_correct = sum(batch.correct for batch in recent_batches)
         window_total = sum(batch.total for batch in recent_batches)
         window_accuracy = (window_correct / window_total * 100) if window_total > 0 else 0
         window_size = len(recent_batches)
+        
+        # Get the most recent batch for "this batch" stats
+        latest_batch = recent_batches[0]
+        batch_accuracy = latest_batch.accuracy * 100
+        batch_correct = latest_batch.correct
+        batch_total = latest_batch.total
     else:
-        window_correct = correct
-        window_total = total
-        window_accuracy = accuracy * 100
-        window_size = 1
+        # No batches yet - return zeros
+        window_accuracy = 0
+        window_size = 0
+        batch_accuracy = 0
+        batch_correct = 0
+        batch_total = 0
 
+    print(f"📊 Returning stats: {window_size} batches, {window_accuracy:.1f}% accuracy")
+    
     return Response({
-        'batch_accuracy': accuracy * 100,
-        'batch_correct': correct,
-        'batch_total': total,
-        'cumulative_accuracy': window_accuracy,  # This is now sliding window
+        'batch_accuracy': batch_accuracy,
+        'batch_correct': batch_correct,
+        'batch_total': batch_total,
+        'cumulative_accuracy': window_accuracy,
         'total_batches': window_size
     })
 
 @api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
 def ebay_annotate(request):
     annotations = request.data.get('annotations', [])
     if not annotations: return Response({'error': 'No annotations'}, status=400)
@@ -483,30 +534,35 @@ def record_of_the_day(request):
             except Exception as e:
                 print(f"Error fetching image: {e}")
 
-        description = ""
-        try:
-            client = anthropic.Anthropic(api_key=config("ANTHROPIC_KEY"))
-            prompt = f"""Write a 2-3 sentence description in the style of Byron
-                         Coley writing for Forced Exposure magazine circa 1990. 
-                         Use his characteristic mix of underground music knowledge, 
-                         obscure references, passionate enthusiasm, and  irreverent tone.
-                         Artist: {record.artist}
-                         Album: {record.title}
-                         Year: {record.year}
-                         Label: {record.label}
-                         Genres: {', '.join(record.genres) if record.genres else 'N/A'}
-                         Styles: {', '.join(record.styles) if record.styles else 'N/A'}
+        description = getattr(record, 'description', None)
 
-                         Write ONLY the review text, nothing else."""
-            message = client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=200,
-                system="You are Byron Coley. Write only the review text, no meta-commentary.",
-                messages=[{"role": "user", "content": prompt}])
-            description = message.content[0].text
-        except Exception as e:
-            print(f"Error generating description: {e}")
-            description = "A hidden gem worth discovering"
+        if not description:
+            try:
+                client = anthropic.Anthropic(api_key=config("ANTHROPIC_KEY"))
+                prompt = f"""Write a 2-3 sentence description in the style of Byron
+                            Coley writing for Forced Exposure magazine circa 1990. 
+                            Use his characteristic mix of underground music knowledge, 
+                            obscure references, passionate enthusiasm, and  irreverent tone.
+                            Artist: {record.artist}
+                            Album: {record.title}
+                            Year: {record.year}
+                            Label: {record.label}
+                            Genres: {', '.join(record.genres) if record.genres else 'N/A'}
+                            Styles: {', '.join(record.styles) if record.styles else 'N/A'}
+
+                            Write ONLY the review text, nothing else."""
+                message = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=200,
+                    system="You are Byron Coley. Write only the review text, no meta-commentary.",
+                    messages=[{"role": "user", "content": prompt}])
+                description = message.content[0].text
+                record.description = description
+                record.save()
+
+            except Exception as e:
+                print(f"Error generating description: {e}")
+                description = "A hidden gem worth discovering"
 
         return Response({
             'artist': record.artist,
@@ -521,7 +577,7 @@ def record_of_the_day(request):
             {'error': str(e)},
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
-    
+        
 @api_view(['GET', 'POST'])
 def rebuild_tfidf_vocab(request):
     vocab_size = 10000
@@ -574,50 +630,53 @@ def rebuild_tfidf_vocab(request):
         'keeper_count': keeper_embeddings.shape[0],
     })
 
-@api_view(['GET', 'POST'])
+@api_view(['POST'])
 def ebay_title_similarity_filter(request):
     threshold = 0.75
-    lookup = LookupByID()
+    listings = request.data.get('listings', [])
+    if not listings: return Response({'error': 'no listings'}, status=400)
+    
     try:
         similarity_index = TfIdfDB.objects.filter(is_active=True).latest('created_at')
         model_data = pickle.loads(similarity_index.model_weights)
         vectorizer = model_data['vectorizer']
         keeper_embeddings = model_data['keeper_embeddings']
     except TfIdfDB.DoesNotExist:
-        return Response("FUCK NO INDEX GODDAMNIT")
+        return Response("no tf-idf model found")
     
-    ebay_listings = EbayListing.objects.filter(evaluated=False)
     ebay_titles = []
     ebay_ids = []
 
-    for listing in ebay_listings:
-        normalized = normalize_title(listing.ebay_title)
-        if normalized:
+    for listing in listings:
+        title = listing.get('title', '')
+        ebay_id = listing.get('ebay_id', '')
+        normalized = normalize_title(title)
+        if normalized and ebay_id:
             ebay_titles.append(normalized)
-            ebay_ids.append(listing.ebay_id)
+            ebay_ids.append(ebay_id)
+    
+    if not ebay_titles:
+        return Response({'results': [], 'total': 0, 'message': 'No unevaluated listings'})
 
     ebay_embeddings = vectorizer.vectorizer.transform(ebay_titles)
-
     keeper_similarities = cosine_similarity(ebay_embeddings, keeper_embeddings)
     final_scores = keeper_similarities.max(axis=1)
 
     results = []
     for i, score in enumerate(final_scores):
         if score >= threshold:
-            listing = EbayListing.objects.get(ebay_id=ebay_ids[i])
             results.append({
-                'id': listing.id,
                 'ebay_id': ebay_ids[i],
                 'score': float(score),
-                'ebay_title': listing.ebay_title,
-                'bid': listing.current_bid,
+                'title': listings[i].get('title'),
             })
 
     results.sort(key=lambda x: x['score'], reverse=True)
 
     return Response({
-        'results': results,
-        'total': len(results)
+        'passed': results,
+        'total': len(listings),
+        'passed_filter': len(results)
     })
 
 @api_view(['GET'])
@@ -625,11 +684,21 @@ def process_annotations(request):
     pass
 
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def get_stats(request):
     total_discogs = Record.objects.count()
     evaluated_discogs = Record.objects.filter(evaluated=True).count()
     keepers = Record.objects.filter(evaluated=True, wanted=True).count()
     non_keepers = Record.objects.filter(evaluated=True, wanted=False).count()
+    keeper_rate = (keepers / evaluated_discogs * 100) if evaluated_discogs > 0 else 0
+
+    recent_batches = BatchPerformance.objects.all()[:100]
+    if recent_batches:
+        total_correct = sum(b.correct for b in recent_batches)
+        total_evaluated = sum(b.total for b in recent_batches)
+        discogs_accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
+    else:
+        discogs_accuracy = 0
 
     total_ebay = EbayListing.objects.count()
     evaluated_ebay = EbayListing.objects.filter(evaluated=True).count()
@@ -641,9 +710,11 @@ def get_stats(request):
         active_model = BanditModelDB.objects.get(is_active=True)
         model_stats = active_model.training_stats
         batch_count = active_model.batch_count
+        model_version = active_model.version
     except BanditModelDB.DoesNotExist:
         model_stats = {}
         batch_count = 0
+        model_version = "none"
 
     try:
         tfidf_model = TfIdfDB.objects.get(is_active=True)
@@ -651,10 +722,21 @@ def get_stats(request):
     except TfIdfDB.DoesNotExist:
         vocab_size = 0
 
-    recent_batches = BatchPerformance.objects.all()[:10]
+    last_10_batches = BatchPerformance.objects.all()[:10]
     avg_accuracy = recent_batches.aggregate(Avg('accuracy'))['accuracy__avg'] if recent_batches.exists() else 0
 
     return Response({
+        # For dashboard compatibility
+        'total_records': total_discogs,
+        'evaluated_records': evaluated_discogs,
+        'keeper_count': keepers,
+        'keeper_rate': keeper_rate,
+        'discogs_accuracy': discogs_accuracy,
+        'ebay_accuracy': 0,  # TODO: implement when eBay batch tracking exists
+        'model_version': model_version,
+        'total_batches': batch_count,
+        
+        # Detailed breakdown
         'discogs': {
             'total': total_discogs,
             'evaluated': evaluated_discogs,
@@ -673,6 +755,147 @@ def get_stats(request):
         'model': {
             'stats': model_stats,
             'vocab_size': vocab_size,
-            'avg_accuracy': round(avg_accuracy, 3) if avg_accuracy else None
+            'avg_accuracy': round(avg_accuracy * 100, 1) if avg_accuracy else 0  # Convert to percentage
         }
+    })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def performance_history(request):
+    batches = BatchPerformance.objects.all()[:100]
+
+    return Response({
+        'batches': [
+            {
+                'batch_number': b.batch_number,
+                'accuracy': b.accuracy,
+                'correct': b.correct,
+                'total': b.total
+            }
+            for b in reversed(list(batches))
+        ]
+    })
+
+@api_view(['GET', 'POST'])
+@permission_classes([AllowAny])
+def todos(request):
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return Response({'error': 'no user id'}, status=400)
+    
+    if request.method == 'GET':
+        user_todos = Todo.objects.filter(user_id = user_id)
+        return Response([{
+            'id': str(todo.id),
+            'text': todo.text,
+            'status': todo.status,
+            'order': todo.order
+        } for todo in user_todos])
+    
+    elif request.method == 'POST':
+        todo = Todo.objects.create(
+            user_id=user_id,
+            text=request.data['text'],
+            status=request.data.get('status', 'backlog'),
+            order=request.data.get('order', 0)
+        )
+        return Response({
+            'id': str(todo.id),
+            'text': todo.text,
+            'status': todo.status,
+            'order': todo.order
+        }, status=201)
+
+@api_view(['PATCH', 'DELETE'])
+@permission_classes([AllowAny])
+def todo_detail(request, todo_id):
+    user_id = request.headers.get('X-User-ID')
+    if not user_id:
+        return Response({'error': 'Missing user ID'}, status=400)
+    
+    try:
+        todo = Todo.objects.get(id=todo_id, user_id=user_id)
+    except Todo.DoesNotExist:
+        return Response({'error': 'Not found'}, status=404)
+    
+    if request.method == 'PATCH':
+        if 'text' in request.data:
+            todo.text = request.data['text']
+        if 'status' in request.data:
+            todo.status = request.data['status']
+        if 'order' in request.data:
+            todo.order = request.data['order']
+        todo.save()
+        return Response({
+            'id': str(todo.id),
+            'text': todo.text,
+            'status': todo.status,
+            'order': todo.order
+        })
+    
+    elif request.method == 'DELETE':
+        todo.delete()
+        return Response(status=204)
+    
+# In bandit/views.py, add:
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def ebay_stats(request):
+    """Get eBay annotation statistics"""
+    total_listings = EbayListing.objects.count()
+    evaluated = EbayListing.objects.filter(evaluated=True).count()
+    keepers = EbayListing.objects.filter(evaluated=True, wanted=True).count()
+    keeper_rate = (keepers / evaluated * 100) if evaluated else 0
+    
+    # Calculate rolling 100-batch accuracy
+    recent_batches = EbayBatchPerformance.objects.all()[:100]
+    if recent_batches:
+        total_correct = sum(b.correct for b in recent_batches)
+        total_evaluated = sum(b.total for b in recent_batches)
+        accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
+    else:
+        accuracy = 0
+    
+    return Response({
+        'total_listings': total_listings,
+        'evaluated': evaluated,
+        'ebay_accuracy': accuracy,
+        'total_batches': EbayBatchPerformance.objects.count()
+    })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def record_ebay_batch_performance(request):
+    """Record eBay batch performance after annotations"""
+    correct = request.data.get('correct')
+    total = request.data.get('total')
+    
+    if correct is None or total is None:
+        return Response({'error': 'Missing data'}, status=400)
+    
+    # Get next batch number
+    last_batch = EbayBatchPerformance.objects.first()
+    batch_num = (last_batch.batch_number + 1) if last_batch else 1
+    
+    accuracy = correct / total if total > 0 else 0
+    
+    EbayBatchPerformance.objects.create(
+        batch_number=batch_num,
+        correct=correct,
+        total=total,
+        accuracy=accuracy
+    )
+    
+    # Calculate rolling stats
+    recent_batches = EbayBatchPerformance.objects.all()[:100]
+    total_correct = sum(b.correct for b in recent_batches)
+    total_evaluated = sum(b.total for b in recent_batches)
+    rolling_accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
+    
+    return Response({
+        'batch_number': batch_num,
+        'accuracy': accuracy * 100,
+        'rolling_accuracy': rolling_accuracy,
+        'total_batches': EbayBatchPerformance.objects.count()
     })

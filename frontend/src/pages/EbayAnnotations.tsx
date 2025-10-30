@@ -34,13 +34,16 @@ const EbayAnnotation = () => {
   const loadSimilarListings = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8001/ml/ebay_first_pass/', {
+      const response = await fetch('http://localhost:8000/api/ebay/unannotated', {
         credentials: 'include'
       });
       if (response.ok) {
         const data = await response.json();
+        console.log('📊 DATA:', data.listings.length, data.listings[0]); // ✅ Add this
         console.log('Received data:', data);
-        setListings(data.results || []);
+        console.log('📄 Current page listings:', currentPageListings.length, currentPageListings[0]);
+
+        setListings(data.listings || []);
       } else {
         setError('Failed to load listings');
       }
@@ -118,11 +121,26 @@ const EbayAnnotation = () => {
         label: keeperIds.has(listing.ebay_id)
       }));
 
-      await fetch('http://localhost:8001/ml/ebay/annotated/', {
+      const response = await fetch('http://localhost:8001/ml/ebay/annotated/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ annotations: allListings })
       });
+
+      if (response.ok) {
+        const result = await response.json();
+
+        if (result.correct !== undefined && result.total !== undefined) {
+          await fetch('http://localhost:8001/ml/ebay/batch_performance/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              correct: result.correct,
+              total: result.total
+            })
+          });
+        }
+      }
       
       setCompletedPages(prev => prev + 1);
       nextPage();  
@@ -202,7 +220,7 @@ const EbayAnnotation = () => {
               <thead className="bg-slate-100 border-b border-slate-200">    
                 <tr>
                   <th className="px-2 py-2 text-left font-semibold text-gray-700 border-r border-gray-200">Title</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Score</th>
+                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Price</th>
                   <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20 border-r border-gray-200">Keep</th>
                 </tr>
               </thead>
@@ -219,8 +237,8 @@ const EbayAnnotation = () => {
                       <td className="px-2 py-2 text-gray-700" title={listing.ebay_title}>
                         {listing.ebay_title || '—'}
                       </td>
-                      <td className="px-2 py-1.5 border-r border-gray-200">
-                        {listing.score ? listing.score.toFixed(4) : '—'}
+                      <td className="px-2 py-1.5 border-r border-gray-200">  {/* ✅ Add this */}
+                        ${listing.current_bid || listing.price || '—'}
                       </td>
                       <td className="px-2 py-1.5 text-center border-r border-gray-200">
                         <button

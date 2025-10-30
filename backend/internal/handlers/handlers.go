@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"log"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -53,13 +57,14 @@ func New(db *gorm.DB, cfg *config.Config) *Handler {
 func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 	log.Println("GetDiscogsKeepersPage called")
 
+	var totalLabelled int64
+	h.db.Model(&models.Record{}).Where("evaluated = ?", true).Count(&totalLabelled)
+
 	// Step 1: Fetch 1000 candidate records
-	var candidates []models.DiscogsListing
+	var candidates []models.Record
 
 	result := h.db.
-		Preload("Record").
-		Joins("JOIN discogs_discogsrecord ON discogs_discogslisting.record_id = discogs_discogsrecord.id").
-		Where("discogs_discogsrecord.evaluated = ?", false).
+		Where("evaluated = ?", false).
 		Order("RANDOM()").
 		Limit(1000).
 		Find(&candidates)
@@ -79,22 +84,20 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 
 	// Step 2: Prepare ML records for ALL candidates
 	var mlRecords []ml.MLRecord
-	candidateMap := make(map[int]models.DiscogsListing)
+	candidateMap := make(map[int]models.Record)
 
-	for i, listing := range candidates {
-		candidateMap[i] = listing
+	for i, record := range candidates {
+		candidateMap[i] = record
 
 		mlRecords = append(mlRecords, ml.MLRecord{
-			Artist:         listing.Record.Artist,
-			Title:          listing.Record.Title,
-			Label:          listing.Record.Label,
-			Genres:         []string(listing.Record.Genres),
-			Styles:         []string(listing.Record.Styles),
-			Wants:          listing.Record.Wants,
-			Haves:          listing.Record.Haves,
-			Year:           listing.Record.Year,
-			RecordPrice:    listing.RecordPrice,
-			MediaCondition: listing.MediaCondition,
+			Artist: record.Artist,
+			Title:  record.Title,
+			Label:  record.Label,
+			Genres: []string(record.Genres),
+			Styles: []string(record.Styles),
+			Wants:  record.Wants,
+			Haves:  record.Haves,
+			Year:   record.Year,
 		})
 	}
 
@@ -108,7 +111,6 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 		return
 	}
 
-	// Step 4: Call bandit selection to pick 20
 	selected, err := h.mlClient.SelectBatch(
 		mlRecords,
 		predictions.MeanPredictions,
@@ -122,32 +124,31 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 
 	log.Printf("Bandit selected %d records", len(selected))
 
-	// Step 5: Build response with selected records
-	var response []ListingResponse
+	var selectedIDs []uint
+	for _, idx := range selected {
+		selectedIDs = append(selectedIDs, candidateMap[idx].ID)
+	}
+
+	var response []RecordResponse
 	var selectedPredictions []float64
 	var selectedMeanPredictions []float64
 	var selectedUncertainties []float64
 
 	for _, idx := range selected {
-		listing := candidateMap[idx]
+		record := candidateMap[idx]
 
-		response = append(response, ListingResponse{
-			ID:             listing.ID,
-			RecordPrice:    listing.RecordPrice,
-			MediaCondition: listing.MediaCondition,
-			Record: RecordResponse{
-				ID:             listing.Record.ID,
-				DiscogsID:      listing.Record.DiscogsID,
-				Artist:         listing.Record.Artist,
-				Title:          listing.Record.Title,
-				Label:          listing.Record.Label,
-				Wants:          listing.Record.Wants,
-				Haves:          listing.Record.Haves,
-				Genres:         []string(listing.Record.Genres),
-				Styles:         []string(listing.Record.Styles),
-				SuggestedPrice: listing.Record.SuggestedPrice,
-				Year:           listing.Record.Year,
-			},
+		response = append(response, RecordResponse{
+			ID:             record.ID,
+			DiscogsID:      record.DiscogsID,
+			Artist:         record.Artist,
+			Title:          record.Title,
+			Label:          record.Label,
+			Wants:          record.Wants,
+			Haves:          record.Haves,
+			Genres:         []string(record.Genres),
+			Styles:         []string(record.Styles),
+			SuggestedPrice: record.SuggestedPrice,
+			Year:           record.Year,
 		})
 
 		selectedPredictions = append(selectedPredictions, predictions.Predictions[idx])
@@ -156,7 +157,7 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 	}
 
 	c.JSON(200, gin.H{
-		"listings":         response,
+		"records":          response,
 		"count":            len(response),
 		"predictions":      selectedPredictions,
 		"mean_predictions": selectedMeanPredictions,
@@ -185,12 +186,15 @@ func (h *Handler) GetStats(c *gin.Context) {
 	var totalCount int64
 	var labeledCount int64
 
-	if err := h.db.Model(&models.DiscogsListing{}).Count(&totalCount).Error; err != nil {
+	if err := h.db.Model(&models.Record{}).Count(&totalCount).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to get total count"})
 		return
 	}
 
-	labeledCount = 0
+	if err := h.db.Model(&models.Record{}).Where("evaluated = ?", true).Count(&labeledCount).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Failed to get labeled count"})
+		return
+	}
 
 	c.JSON(200, gin.H{
 		"total":   totalCount,
@@ -199,21 +203,22 @@ func (h *Handler) GetStats(c *gin.Context) {
 }
 
 func (h *Handler) LabelRecords(c *gin.Context) {
+
 	var req LabelRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(400, gin.H{"error": "Invalid request format"})
 		return
 	}
 
-	// Process each record decision (not listing)
+	log.Printf("📥 Received %d labels", len(req.Labels))
+
+	// Process each record decision
 	for _, label := range req.Labels {
-		// Get the record_id from the listing
 		var listing models.DiscogsListing
 		if err := h.db.First(&listing, label.ID).Error; err != nil {
 			continue
 		}
 
-		// Update the record, not the listing
 		if err := h.db.Model(&models.Record{}).
 			Where("id = ?", listing.RecordID).
 			Updates(map[string]interface{}{
@@ -225,16 +230,18 @@ func (h *Handler) LabelRecords(c *gin.Context) {
 	}
 
 	feedbackPayload := map[string]interface{}{
-		"records":     req.Records,
-		"labels":      extractLabels(req.Labels),
-		"predictions": req.Predictions,
+		"records":          req.Records,
+		"labels":           extractLabels(req.Labels),
+		"predictions":      req.Predictions,
+		"mean_predictions": req.MeanPredictions,
+		"uncertainties":    req.Uncertainties,
 	}
 
+	log.Printf("🔄 Sending feedback to ML service...") // ✅ ADD
 	if err := h.mlClient.SendFeedback(feedbackPayload); err != nil {
-		log.Printf("Failed to send ML feedback: %v", err)
-		// Don't fail the request - labels are still saved
+		log.Printf("❌ Failed to send ML feedback: %v", err) // ✅ ADD
 	} else {
-		log.Printf("Successfully sent feedback for %d records", len(req.Records))
+		log.Printf("✅ Successfully sent feedback for %d records", len(req.Records)) // ✅ ADD
 	}
 
 	c.JSON(200, gin.H{"message": "Records labeled successfully"})
@@ -256,8 +263,10 @@ type LabelRequest struct {
 		ID    uint `json:"id"`
 		Label bool `json:"label"`
 	} `json:"labels"`
-	Records     []map[string]interface{} `json:"records"`
-	Predictions []float64                `json:"predictions"`
+	Records         []map[string]interface{} `json:"records"`
+	Predictions     []float64                `json:"predictions"`
+	MeanPredictions []float64                `json:"mean_predictions"` // ✅ NEW
+	Uncertainties   []float64                `json:"uncertainties"`    // ✅ NEW
 }
 
 func (h *Handler) GetWantedRecords(c *gin.Context) {
@@ -299,4 +308,103 @@ func (h *Handler) RecordBatchPerformance(c *gin.Context) {
 	}
 
 	c.JSON(200, result)
+}
+
+func (h *Handler) GetTodos(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	// Forward to Django with user_id header
+	req, _ := http.NewRequest("GET", "http://localhost:8001/ml/todos/", nil)
+	req.Header.Set("X-User-ID", fmt.Sprint(userID))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to fetch todos"})
+		return
+	}
+	defer resp.Body.Close()
+
+	var todos []map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&todos)
+	c.JSON(200, todos)
+}
+
+func (h *Handler) CreateTodo(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	var body map[string]interface{}
+	c.BindJSON(&body)
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("POST", "http://localhost:8001/ml/todos/", bytes.NewBuffer(jsonBody))
+	req.Header.Set("X-User-ID", fmt.Sprint(userID))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to create todo"})
+		return
+	}
+	defer resp.Body.Close()
+
+	var todo map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&todo)
+	c.JSON(resp.StatusCode, todo)
+}
+
+func (h *Handler) UpdateTodo(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	todoID := c.Param("id")
+	var body map[string]interface{}
+	c.BindJSON(&body)
+
+	jsonBody, _ := json.Marshal(body)
+	req, _ := http.NewRequest("PATCH", fmt.Sprintf("http://localhost:8001/ml/todos/%s/", todoID), bytes.NewBuffer(jsonBody))
+	req.Header.Set("X-User-ID", fmt.Sprint(userID))
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to update todo"})
+		return
+	}
+	defer resp.Body.Close()
+
+	var todo map[string]interface{}
+	json.NewDecoder(resp.Body).Decode(&todo)
+	c.JSON(resp.StatusCode, todo)
+}
+
+func (h *Handler) DeleteTodo(c *gin.Context) {
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(401, gin.H{"error": "Unauthorized"})
+		return
+	}
+
+	todoID := c.Param("id")
+	req, _ := http.NewRequest("DELETE", fmt.Sprintf("http://localhost:8001/ml/todos/%s/", todoID), nil)
+	req.Header.Set("X-User-ID", fmt.Sprint(userID))
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Failed to delete todo"})
+		return
+	}
+	defer resp.Body.Close()
+
+	c.Status(resp.StatusCode)
 }

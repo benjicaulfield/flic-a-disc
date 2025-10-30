@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -128,10 +130,14 @@ func (c *Client) Train(instances []TrainingInstance) error {
 }
 
 func (c *Client) SendFeedback(payload map[string]interface{}) error {
+	log.Printf("🔵 SendFeedback called with %d records", len(payload["records"].([]map[string]interface{})))
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal feedback")
+		return fmt.Errorf("failed to marshal feedback: %w", err)
 	}
+
+	log.Printf("🔵 Sending to: %s/feedback/", c.baseURL)
 
 	resp, err := c.httpClient.Post(
 		c.baseURL+"/feedback/",
@@ -139,12 +145,16 @@ func (c *Client) SendFeedback(payload map[string]interface{}) error {
 		bytes.NewBuffer(jsonData),
 	)
 	if err != nil {
-		return fmt.Errorf("failed to send feedback")
+		return fmt.Errorf("failed to send feedback: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+	log.Printf("🔵 Response status: %d", resp.StatusCode)
+	log.Printf("🔵 Response body: %s", string(body))
+
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("feedback request failed")
+		return fmt.Errorf("feedback request failed: %d - %s", resp.StatusCode, string(body))
 	}
 	return nil
 }
