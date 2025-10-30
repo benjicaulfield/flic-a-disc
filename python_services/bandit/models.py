@@ -15,6 +15,7 @@ class Record(models.Model):
     suggested_price = models.CharField(max_length=255, default='')
     year = models.IntegerField(null=True, blank=True)
     record_image = models.URLField(max_length=500, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
     wanted = models.BooleanField(default=False)
     evaluated = models.BooleanField(default=False)
 
@@ -120,3 +121,34 @@ class TfIdfDB(models.Model):
     class Meta:
         db_table = 'similarity_index'
         ordering = ['-created_at']
+
+class Todo(models.Model):
+    user_id = models.CharField(max_length=255)
+    text = models.TextField()
+    status = models.CharField(max_length=20, choices=[('in-progress', 'In Progress'), ('backlog', 'Backlog')])
+    order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['order', 'created_at']
+        db_table = 'todos'
+
+    def __str__(self):
+        return f"User {self.user_id}: {self.text[:50]}"
+    
+# In bandit/models.py, add:
+
+class EbayBatchPerformance(models.Model):
+    batch_number = models.IntegerField()
+    correct = models.IntegerField()
+    total = models.IntegerField()
+    accuracy = models.FloatField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-batch_number']
+        db_table = 'ebay_batch_performance'
+    
+    def __str__(self):
+        return f"eBay Batch {self.batch_number}: {self.accuracy*100:.1f}% ({self.correct}/{self.total})"

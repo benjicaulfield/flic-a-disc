@@ -1,12 +1,12 @@
 import { useEffect, useState, Fragment } from 'react';
-import type { DiscogsListing, MLData, PerformanceStats } from '../types/interfaces';
+import type { DiscogsRecord, MLData, PerformanceStats } from '../types/interfaces';
 import { Paginate } from '../hooks/Paginate';
 
 const DiscogsKeepers = () => {
-  const [listings, setListings] = useState<DiscogsListing[]>([]);
+  const [records, setRecords] = useState<DiscogsRecord[]>([]);
   const [labeledCount, setLabeledCount] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
-  const [selectedListings, setSelectedListings] = useState<Record<number, boolean>>({});
+  const [selectedRecords, setSelectedRecords] = useState<Record<number, boolean>>({});
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [saving, setSaving] = useState<boolean>(false);
@@ -18,10 +18,10 @@ const DiscogsKeepers = () => {
   const PAGE_SIZE = 20;
 
   const {
-      currentItems: currentPageListings,
+      currentItems: currentPageRecords,
       currentPage, totalPages, nextPage,
       previousPage, hasNextPage, hasPreviousPage
-    } = Paginate(listings, PAGE_SIZE)
+    } = Paginate(records, PAGE_SIZE)
 
   useEffect(() => {
     loadPage();
@@ -32,22 +32,21 @@ const DiscogsKeepers = () => {
     try {
       setLoading(true);
       const response = await fetch('http://localhost:8000/api/discogs/keepers', {
-        credentials: 'include',  
-        headers: {
-          'Authorization': `Token ${localStorage.getItem('authToken')}` // or from context
-        }
+        credentials: 'include',
       });
           
-    if (response.ok) {
-        const data = await response.json();
-        setListings(data.listings)
-        setMlData({
-          predictions: data.predictions,
-          mean_predictions: data.mean_predictions,
-          threshold: 0.75,
-          uncertainties: data.uncertainties,
-          model_version: data.model_version
-        });
+      if (response.ok) {
+          const data = await response.json();
+          console.log('First record:', data.records?.[0]);  // ← ADD THIS LINE
+
+          setRecords(data.records)
+          setMlData({
+            predictions: data.predictions,
+            mean_predictions: data.mean_predictions,
+            threshold: 0.75,
+            uncertainties: data.uncertainties,
+            model_version: data.model_version
+          });
       } else {
         setError('Failed to load listings');
       }
@@ -60,8 +59,10 @@ const DiscogsKeepers = () => {
 
   const fetchStats = async () => {
     try {
-      const url = "http://localhost:8000/api/discogs/stats"
-      const response = await fetch(url);
+      const response = await fetch("http://localhost:8000/api/discogs/stats", {
+        credentials: 'include',
+      });
+
 
       if (response.ok) {
         const stats = await response.json();
@@ -76,29 +77,29 @@ const DiscogsKeepers = () => {
     }
   };
 
-  const toggleLabel = (listingId: number, index: number, event: React.MouseEvent): void => {
+  const toggleLabel = (recordId: number, index: number, event: React.MouseEvent): void => {
     if (event.shiftKey && lastClickedIndex !== null) {
       // Shift+click: select range
       const startIndex = Math.min(lastClickedIndex, index);
       const endIndex = Math.max(lastClickedIndex, index);
       
       // Determine what state to apply - if the current item is unselected, select the range
-      const shouldSelect = !selectedListings[listingId];
+      const shouldSelect = !selectedRecords[recordId];
       
-      setSelectedListings(prev => {
+      setSelectedRecords(prev => {
         const newSelected = { ...prev };
         for (let i = startIndex; i <= endIndex; i++) {
-          if (currentPageListings[i]) {
-            newSelected[currentPageListings[i].id] = shouldSelect;
+          if (currentPageRecords[i]) {
+            newSelected[currentPageRecords[i].id] = shouldSelect;
           }
         }
         return newSelected;
       });
     } else {
       // Regular click: toggle single item
-      setSelectedListings(prev => ({
+      setSelectedRecords(prev => ({
         ...prev,
-        [listingId]: !prev[listingId]
+        [recordId]: !prev[recordId]
       }));
     }
     
@@ -109,51 +110,59 @@ const DiscogsKeepers = () => {
     console.log("save page called");
     try {
       setSaving(true);
-      const labels = currentPageListings.map(listing => ({
+      const labels = currentPageRecords.map(listing => ({
         id: listing.id,
-        label: selectedListings[listing.id] || false
+        label: selectedRecords[listing.id] || false
       }));
 
-      const mlRecords = currentPageListings.map(listing => ({
-        listing_id: listing.id,  // Important: include the listing ID
-        artist: listing.record.artist,
-        title: listing.record.title,
-        label: listing.record.label,
-        genres: listing.record.genres,
-        styles: listing.record.styles,
-        wants: listing.record.wants,
-        haves: listing.record.haves,
-        year: listing.record.year,
-        record_price: listing.record_price,
-        media_condition: listing.media_condition
+      const mlRecords = currentPageRecords.map(record => ({
+        listing_id: record.id,
+        artist: record.artist,
+        title: record.title,
+        label: record.label,
+        genres: record.genres,
+        styles: record.styles,
+        wants: record.wants,
+        haves: record.haves,
+        year: record.year,
       }));
 
+      // ✅ WAIT for labels to be saved (this creates the BatchPerformance record)
       await fetch('http://localhost:8000/api/discogs/labels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ labels, 
-                               records: mlRecords, 
-                               predictions: mlData?.predictions || []
-         })
+        credentials: 'include',
+        body: JSON.stringify({ 
+          labels, 
+          records: mlRecords, 
+          predictions: mlData?.predictions || [],
+          mean_predictions: mlData?.mean_predictions || [],
+          uncertainties: mlData?.uncertainties || []
+        })
       });
 
-      setLabeledCount(prev => prev + currentPageListings.length);
+      setLabeledCount(prev => prev + currentPageRecords.length);
       setShowResults(true);
       
       const { divider } = sortListingsByAgreement();
+      
+      // ✅ NOW fetch performance (BatchPerformance record exists)
       const response = await fetch('http://localhost:8000/api/discogs/performance', {
         method: 'POST',
         headers: {'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({
           correct: divider,
-          total: currentPageListings.length
+          total: currentPageRecords.length
         })
       });
 
       const perfData = await response.json();
+      console.log('📊 Performance data:', perfData);  // ✅ ADD THIS DEBUG
       setCumulativeStats(perfData);
 
-    } catch {
+    } catch (err) {
+      console.error('Save error:', err);  // ✅ ADD THIS DEBUG
       setError('Failed to save labels');
     } finally {
       setSaving(false);
@@ -162,11 +171,11 @@ const DiscogsKeepers = () => {
 
   const sortListingsByAgreement = () => {
     if (!mlData) {
-      return { listings: currentPageListings, divider: 0, accuracy: 0 };
+      return { listings: currentPageRecords, divider: 0, accuracy: 0 };
     }
 
-    const categorized = currentPageListings.map((listing, index) => {
-      const userSelected = selectedListings[listing.id] || false;
+    const categorized = currentPageRecords.map((listing, index) => {
+      const userSelected = selectedRecords[listing.id] || false;
       // Calculate binary decision from mean_predictions right here
       const modelSelected = mlData.mean_predictions[index] > 0.5;
       const agreement = userSelected === modelSelected;
@@ -188,7 +197,7 @@ const DiscogsKeepers = () => {
 
   const loadNextBatch = async () => {
     setShowResults(false);
-    setSelectedListings({});
+    setSelectedRecords({});
     setLastClickedIndex(null);
     setMlData(null);
     await loadPage();
@@ -197,7 +206,7 @@ const DiscogsKeepers = () => {
 
   const { listings: displayListings, divider, accuracy } = showResults 
     ? sortListingsByAgreement() 
-    : { listings: currentPageListings, divider: 0, accuracy: 0 };
+    : { listings: currentPageRecords, divider: 0, accuracy: 0 };
 
   if (loading) {
     return (
@@ -221,7 +230,7 @@ const DiscogsKeepers = () => {
     )
   }
 
-  if (listings.length === 0) {
+  if (records.length === 0) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="bg-white rounded-lg shadow-md p-12 text-center">
@@ -257,7 +266,7 @@ const DiscogsKeepers = () => {
                     {accuracy ?? 0}%
                   </div>
                   <div className="text-sm text-blue-600 mt-1">
-                    {divider} correct out of {currentPageListings.length} predictions
+                    {divider} correct out of {currentPageRecords.length} predictions
                   </div>
                 </div>
               </div>
@@ -265,7 +274,9 @@ const DiscogsKeepers = () => {
               {cumulativeStats && (
                 <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
                   <div className="text-center">
-                    <div className="text-sm text-purple-700 font-medium">Last 10 Batches</div>
+                    <div className="text-sm text-purple-700 font-medium">
+                      Rolling Window (Last {cumulativeStats?.total_batches ?? 0} Batches)
+                    </div>
                     <div className={`text-4xl font-bold mt-2 ${
                       (cumulativeStats?.cumulative_accuracy ?? 0) >= 80 ? 'text-green-600' : 
                       (cumulativeStats?.cumulative_accuracy ?? 0) >= 70 ? 'text-yellow-600' : 'text-red-600'
@@ -273,13 +284,14 @@ const DiscogsKeepers = () => {
                       {Math.round(cumulativeStats?.cumulative_accuracy ?? 0)}%
                     </div>
                     <div className="text-sm text-purple-600 mt-1">
-                      {cumulativeStats?.total_batches ?? 0} recent batches
+                      up to 100 batch rolling average
                     </div>
                   </div>
                 </div>
               )}
             </div>
           )}
+
           {/* Pagination Controls */}
           <div className="flex items-center justify-between">
             <button 
@@ -319,17 +331,15 @@ const DiscogsKeepers = () => {
                   <th className="w-14 px-2 py-2 text-center font-medium text-gray-500 uppercase">Have</th>
                   <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Genre</th>
                   <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Style</th>
-                  <th className="w-16 px-2 py-2 text-left font-medium text-gray-500 uppercase">Cond</th>
-                  <th className="w-20 px-2 py-2 text-right font-medium text-gray-500 uppercase">Price</th>
                   <th className="w-20 px-2 py-2 text-right font-medium text-gray-500 uppercase">Sugg</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {displayListings.map((listing, index) => {
+                {displayListings.map((record, index) => {
                   const dividingLine = showResults && index === divider;
 
                   return (
-                    <Fragment key={listing.id}>
+                    <Fragment key={record.id}>
                       {dividingLine && (
                         <tr>
                           <td colSpan={12} className="px-0 py-0">
@@ -345,53 +355,49 @@ const DiscogsKeepers = () => {
                       <td className="px-2 py-2">
                         <button 
                           className={`w-6 h-6 rounded border flex items-center justify-center text-xs transition-colors ${
-                            selectedListings[listing.id] 
+                            selectedRecords[record.id] 
                               ? 'bg-green-500 border-green-500 text-white hover:bg-green-600' 
                               : 'bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50'
                           }`}
-                          onClick={(event) => toggleLabel(listing.id, index, event)}
+                          onClick={(event) => toggleLabel(record.id, index, event)}
                         >
-                          {selectedListings[listing.id] && '✓'}
+                          {selectedRecords[record.id] && '✓'}
                         </button>
                       </td>
-                      <td className="px-2 py-2 font-medium text-gray-900 truncate" title={listing.record.artist}>
-                        {listing.record.artist}
+                      <td className="px-2 py-2 font-medium text-gray-900 truncate" title={record.artist}>
+                        {record.artist}
                       </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={listing.record.title}>
-                        {listing.record.title}
+                      <td className="px-2 py-2 text-gray-700 truncate" title={record.title}>
+                        {record.title}
                       </td>
                       <td className="px-2 py-2 text-gray-700">
-                        {listing.record.year}
+                        {record.year}
                       </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={listing.record.label}>
-                        {listing.record.label}
+                      <td className="px-2 py-2 text-gray-700 truncate" title={record.label}>
+                        {record.label}
                       </td>
                       <td className="px-2 py-2 text-center">
                         <span className="px-1 py-0.5 rounded text-xs bg-blue-100 text-blue-800">
-                          {listing.record.wants}
+                          {record.wants}
                         </span>
                       </td>
                       <td className="px-2 py-2 text-center">
                         <span className="px-1 py-0.5 rounded text-xs bg-gray-100 text-gray-800">
-                          {listing.record.haves}
+                          {record.haves}
                         </span>
                       </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={listing.record.genres.join(', ')}>
-                        {listing.record.genres[0]}
-                        {listing.record.genres.length > 1 && <span className="text-gray-400">+{listing.record.genres.length - 1}</span>}
+                      <td className="px-2 py-2 text-gray-700 truncate" title={record.genres.join(', ')}>
+                        {record.genres[0]}
+                        {record.genres.length > 1 && <span className="text-gray-400">+{record.genres.length - 1}</span>}
                       </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={listing.record.styles.join(', ')}>
-                        {listing.record.styles[0]}
-                        {listing.record.styles.length > 1 && <span className="text-gray-400">+{listing.record.styles.length - 1}</span>}
-                      </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={listing.media_condition}>
-                        {listing.media_condition.replace('Very Good', 'VG').replace('Near Mint', 'NM').replace('Good Plus', 'G+')}
-                      </td>
-                      <td className="px-2 py-2 font-medium text-gray-900 text-right truncate">
-                        {listing.record_price}
+                      <td className="px-2 py-2 text-gray-700 truncate" title={record.styles.join(', ')}>
+                        {record.styles[0]}
+                        {record.styles.length > 1 && <span className="text-gray-400">+{record.styles.length - 1}</span>}
                       </td>
                       <td className="px-2 py-2 text-gray-500 text-right truncate">
-                        {listing.record.suggested_price}
+                        {record.suggested_price 
+                          ? `$${parseFloat(record.suggested_price.replace(/[^0-9.]/g, '')).toFixed(2)}` 
+                          : '—'}
                       </td>
                     </tr>
                   </Fragment>
@@ -405,7 +411,8 @@ const DiscogsKeepers = () => {
         <div className="mt-6 flex justify-center">
         {showResults ? (
           <button
-            className="px-8 py-3 rounded-lg text-white font-medium bg-blue-600 hover:bg-blue-700 transition-colors"            onClick={loadNextBatch}
+            className="px-8 py-3 rounded-lg text-white font-medium bg-blue-600 hover:bg-blue-700 transition-colors"            
+            onClick={loadNextBatch}
           >
             Continue to Next Batch
           </button>

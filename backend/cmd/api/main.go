@@ -32,7 +32,7 @@ func main() {
 
 	// Gin setup
 	gin.SetMode(gin.ReleaseMode) // or gin.DebugMode during dev
-	r := gin.New()
+	r := gin.Default()
 	r.Use(
 		cors.New(cors.Config{
 			AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "http://localhost:5174"},
@@ -63,6 +63,10 @@ func main() {
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/ebay/unannotated", ebayHandler.GetUnannotatedListings)
 		protected.GET("auth/me", authHandler.Me)
+		protected.GET("/todos", h.GetTodos)
+		protected.POST("/todos", h.CreateTodo)
+		protected.PATCH("/todos/:id", h.UpdateTodo)
+		protected.DELETE("/todos/:id", h.DeleteTodo)
 	}
 
 	port := os.Getenv("PORT")

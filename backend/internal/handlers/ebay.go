@@ -43,10 +43,9 @@ func (h *EbayHandler) fetchAndCacheListings() {
 	}
 
 	now := time.Now()
-	// cutoffStart := now.Add(24 * time.Hour)
 	cutoffEnd := now.Add(24 * time.Hour)
 
-	var results []ebay.ItemSummary
+	var raw []gin.H
 	for _, item := range allResults {
 		endDate, err := time.Parse(time.RFC3339, item.ItemEndDate)
 		if err != nil {
@@ -54,14 +53,53 @@ func (h *EbayHandler) fetchAndCacheListings() {
 		}
 
 		if endDate.Before(cutoffEnd) && endDate.After(now) {
-			results = append(results, item)
+			var priceValue string
+			if item.Price != nil {
+				priceValue = item.Price.Value
+			}
+
+			currentBid := priceValue
+			if item.CurrentBidPrice != nil {
+				currentBid = item.CurrentBidPrice.Value
+			}
+
+			raw = append(raw, gin.H{
+				"ebay_id":     item.ItemID,
+				"title":       item.Title,
+				"price":       priceValue,
+				"current_bid": currentBid,
+				"bid_count":   item.BidCount,
+				"url":         item.ItemWebURL,
+				"end_date":    item.ItemEndDate,
+			})
 		}
 	}
 
-	log.Printf("Found %d item summaries (24-48 hours out) from eBay.", len(results))
+	log.Printf("Found %d raw listings from ebay", len(raw))
 
-	var listings []gin.H
-	for _, item := range results {
+	filteredListings, err := h.filterListingsByTFIDF(raw)
+	if err != nil {
+		log.Printf("Failed to filter listings: %v", err)
+		return
+	}
+
+	log.Printf("TF-IDF filter passed %d/%d listings", len(filteredListings), len(raw))
+
+	// ✅ Save only filtered listings to database
+	for _, item := range allResults {
+		// Check if this item passed the filter
+		passed := false
+		for _, filtered := range filteredListings {
+			if filtered["ebay_id"].(string) == item.ItemID {
+				passed = true
+				break
+			}
+		}
+
+		if !passed {
+			continue // Skip listings that didn't pass filter
+		}
+
 		var priceValue string
 		if item.Price != nil {
 			priceValue = item.Price.Value
@@ -88,29 +126,39 @@ func (h *EbayHandler) fetchAndCacheListings() {
 		if err := h.db.Create(&dbListing).Error; err != nil {
 			log.Printf("Failed to save listing %s: %v", item.ItemID, err)
 		}
-
-		listings = append(listings, gin.H{
-			"ebay_id":     item.ItemID,
-			"title":       item.Title,
-			"price":       priceValue,
-			"current_bid": currentBid,
-			"bid_count":   item.BidCount,
-			"url":         item.ItemWebURL,
-			"end_date":    item.ItemEndDate,
-		})
 	}
 
-	log.Printf("Built %d listings", len(listings))
+	log.Printf("Saved %d filtered listings to database", len(filteredListings))
+}
 
-	h.mu.Lock()
-	h.listings = listings
-	h.mu.Unlock()
+// ✅ New helper function to call Python filter
+func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
+	filterURL := "http://localhost:8001/ml/ebay_title_similarity_filter/"
 
-	if err := h.saveToCSV(listings); err != nil {
-		log.Printf("failed to save to csv: %v", err)
+	requestBody := map[string]interface{}{
+		"listings": listings,
 	}
 
-	log.Printf("Loaded %d eBay listings", len(h.listings))
+	jsonBody, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := http.Post(filterURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var result struct {
+		Passed []gin.H `json:"passed"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	return result.Passed, nil
 }
 
 func (h *EbayHandler) TriggerFetch(c *gin.Context) {
@@ -421,9 +469,11 @@ func (h *EbayHandler) GetUnannotatedListings(c *gin.Context) {
 	response := []gin.H{}
 	for _, listing := range listings {
 		response = append(response, gin.H{
+			"id":          listing.ID,
 			"ebay_id":     listing.EbayID,
-			"title":       listing.EbayTitle,
+			"ebay_title":  listing.EbayTitle,
 			"price":       listing.Price,
+			"score":       0.0,
 			"current_bid": listing.CurrentBid,
 			"bid_count":   listing.BidCount,
 			"end_date":    listing.EndDate,
