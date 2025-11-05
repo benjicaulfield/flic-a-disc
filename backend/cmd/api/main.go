@@ -2,6 +2,7 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,10 +18,18 @@ import (
 )
 
 func main() {
-	// Load .env from module root; non-fatal if missing
-	_ = godotenv.Load(".env")
+	if err := godotenv.Load(".env.local"); err == nil {
+		fmt.Println("Loaded environment from .env.local")
+	} else if err := godotenv.Load(".env"); err == nil {
+		fmt.Println("Loaded environment from .env")
+	} else {
+		fmt.Println("No .env file found — using system environment")
+	}
 
 	cfg := config.Load()
+
+	fmt.Printf("DB → host=%s user=%s db=%s sslmode=%s\n",
+		cfg.Database.Host, cfg.Database.User, cfg.Database.Name, cfg.Database.SSLMode)
 
 	db, err := database.Initialize(cfg.Database)
 	if err != nil {
@@ -33,15 +42,17 @@ func main() {
 	// Gin setup
 	gin.SetMode(gin.ReleaseMode) // or gin.DebugMode during dev
 	r := gin.Default()
-	r.Use(
-		cors.New(cors.Config{
-			AllowOrigins:     []string{"http://localhost:3000", "http://localhost:5173", "http://localhost:5174"},
-			AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
-			AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"},
-			AllowCredentials: true,
-			MaxAge:           12 * time.Hour,
-		}),
-	)
+	r.Use(cors.New(cors.Config{
+		AllowOriginFunc: func(origin string) bool {
+			return origin == "http://localhost:5173" ||
+				origin == "http://localhost:5174" ||
+				origin == "http://localhost:3000"
+		},
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	h := handlers.New(db, cfg)
 	ebayHandler := handlers.NewEbayHandler(cfg.External.EbayAppId, cfg.External.EbayCertId, db)

@@ -53,7 +53,6 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   }, []);
 
 
-
   const loadTodos = async () => {
     try {
       const response = await fetch('http://localhost:8000/api/todos', {
@@ -237,11 +236,10 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   };
 
   const sidebarLinks = [
-    { id: 'training', label: 'Training', path: '/discogs/keepers' },
-    { id: 'writing', label: 'Writing', path: '/writing' },
-    { id: 'trading', label: 'Trading', path: '/trading' },
-    { id: 'ebay', label: 'eBay', path: '/ebay/auctions' },
-    { id: 'discogs', label: 'Discogs', path: '/discogs' },
+    { id: 'discogs_training', label: 'discogs training', path: '/training/discogs' },
+    { id: 'abay_training', label: 'ebay training', path: '/training/ebay' },
+    { id: 'writing', label: 'writing', path: '/writing' },
+    { id: 'trading', label: 'trading', path: '/trading' },
   ];
 
   const handleNavigation = (link: typeof sidebarLinks[0]) => {

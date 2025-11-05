@@ -15,13 +15,13 @@ class Migration(migrations.Migration):
             name="predicted_uncertainty",
             field=models.FloatField(blank=True, null=True),
         ),
-        migrations.AddField(
-            model_name="bandittraininginstance",
-            name="record",
-            field=models.ForeignKey(
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                to="bandit.record",
-            ),
-        ),
+        # migrations.AddField(
+        #    model_name="bandittraininginstance",
+        #    name="record",
+        #    field=models.ForeignKey(
+        #        null=True,
+        #        on_delete=django.db.models.deletion.CASCADE,
+        #        to="bandit.record",
+        #    ),
+        #),
     ]

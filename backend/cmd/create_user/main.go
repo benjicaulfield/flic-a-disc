@@ -4,17 +4,17 @@ import (
 	"fmt"
 	"log"
 
+	"github.com/joho/godotenv"
+
 	"flic-a-disc/internal/config"
 	"flic-a-disc/internal/database"
 	"flic-a-disc/internal/models"
 
-	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
 )
 
 func main() {
-	// Load .env
-	_ = godotenv.Load(".env")
+	_ = godotenv.Load()
 
 	cfg := config.Load()
 
