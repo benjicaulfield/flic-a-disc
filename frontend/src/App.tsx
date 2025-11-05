@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import DiscogsKeepers from './pages/DiscogsKeepers';
+import EbayTraining from './pages/EbayTraining';
 import EbayAuctions from './pages/EbayAuctions';
 import EbayAnnotation from './pages/EbayAnnotations';
 import LandingPage from './pages/landing/LandingPage';
@@ -58,7 +59,8 @@ return (
         <Route path="/dashboard" element={user
               ? <UserDashboard onLogout={handleLogout} />
               : <Navigate to="/" replace /> } />
-        <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
+        <Route path="/training/discogs" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
+        <Route path="/training/ebay" element={user ? <EbayTraining /> : <Navigate to="/" /> } />
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/annotate" element={<EbayAnnotation />} />
       </Routes>
