@@ -42,8 +42,14 @@ class EbayListing(models.Model):
     bid_count = models.IntegerField(default=0)
     end_date = models.DateTimeField()
     creation_date = models.DateTimeField()
+
+class EbayKeeper(models.Model):
+    ebay_id = models.CharField(max_length=255, unique=True)
+    ebay_title = models.TextField()
+    price = models.CharField(max_length=50)
+    currency = models.CharField(max_length=10, blank=True)
+    current_bid = models.CharField(max_length=50)
     
-    # Parsed metadata
     artist = models.CharField(max_length=255, blank=True)
     album = models.CharField(max_length=255, blank=True)
     label = models.CharField(max_length=255, blank=True)
@@ -54,16 +60,11 @@ class EbayListing(models.Model):
     genre = models.CharField(max_length=100, blank=True)
     style = models.CharField(max_length=100, blank=True)
     
-    wanted = models.BooleanField(default=False)
-    evaluated = models.BooleanField(default=False)
-    saved = models.BooleanField(default=False)
     enriched = models.BooleanField(default=False)
-
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        db_table = 'ebay_listings'  # Match Go's table name
+        db_table = 'ebay_keepers' 
 
 class BanditModel(models.Model):
     version = models.CharField(max_length=255)

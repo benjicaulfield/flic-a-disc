@@ -3,6 +3,7 @@ import time
 import torch 
 import pickle
 import random
+import logging
 import numpy as np 
 import anthropic
 from decouple import config
@@ -18,9 +19,8 @@ from rest_framework.response import Response
 from sklearn.metrics.pairwise import cosine_similarity
 
 from .models import (Record, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, 
-                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance)
+                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance, EbayKeeper)
 from .training import BanditTrainer
-from .features import RecordFeatureExtractor
 from .bandit_selection import adaptive_batch_selection
 from .enhance_listings import LookupByID
 from .text_utils import create_mock_ebay_title, normalize_title
@@ -29,6 +29,7 @@ from .discogs_client import authenticate_client
 
 trainer = BanditTrainer()
 feedback_buffer = []
+logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 def predict(request):
@@ -167,7 +168,8 @@ def health(request):
         'feature_extractor_loaded': trainer.feature_extractor is not None
     })
 
-@api_view(['POST'])
+@api_view(['POST', 'GET'])
+@permission_classes([AllowAny])
 def retrain(request):
     """Force complete retraining from scratch"""
     try:
@@ -180,6 +182,8 @@ def retrain(request):
             batch_size=batch_size,
             learning_rate=learning_rate
         )
+
+        print(history)
         
         return Response({
             'message': 'Model retrained successfully',
@@ -452,7 +456,6 @@ def ebay_annotate(request):
 
     keeper_ids = []
     non_keeper_ids = []
-
     errors = []
 
     for annotation in annotations:
@@ -463,16 +466,21 @@ def ebay_annotate(request):
         else: non_keeper_ids.append(ebay_id)
         
         try:
-            # Update the listing with annotation
             listing = EbayListing.objects.get(ebay_id=ebay_id)
-            listing.wanted = label
-            listing.evaluated = True
-            listing.save()
+            if label:
+                EbayKeeper.objects.get_or_create(
+                    ebay_id=listing.ebay_id,
+                    defaults={
+                        'ebay_title': listing.ebay_title,
+                        'price': listing.price,
+                        'currency': listing.currency,
+                        'current_bid': listing.current_bid,
+                    }
+                )
             
         except EbayListing.DoesNotExist:
             errors.append(f"Listing {ebay_id} not found")
             continue
-    
     
     return Response({
         'success': True,
@@ -481,6 +489,41 @@ def ebay_annotate(request):
         'keeper_ids': keeper_ids,
         'errors': errors if errors else None
     })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def get_unenriched_keepers(request):
+    """Get all keepers that haven't been enriched yet"""
+    keepers = EbayKeeper.objects.filter(enriched=False)
+    return Response({
+        'keepers': [{'ebay_id': k.ebay_id} for k in keepers],
+        'count': keepers.count()
+    })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def update_keeper(request):
+    """Update keeper with enriched metadata"""
+    ebay_id = request.data.get('ebay_id')
+    
+    try:
+        keeper = EbayKeeper.objects.get(ebay_id=ebay_id)
+        keeper.artist = request.data.get('artist', '')
+        keeper.album = request.data.get('album', '')
+        keeper.label = request.data.get('label', '')
+        keeper.format = request.data.get('format', '')
+        keeper.year = request.data.get('year', '')
+        keeper.record_condition = request.data.get('record_condition', '')
+        keeper.sleeve_condition = request.data.get('sleeve_condition', '')
+        keeper.genre = request.data.get('genre', '')
+        keeper.style = request.data.get('style', '')
+        keeper.enriched = True
+        keeper.save()
+        
+        return Response({'success': True})
+    except EbayKeeper.DoesNotExist:
+        return Response({'error': 'Keeper not found'}, status=404)
+
 
 def select_record_of_the_day():
     recent_listings = DiscogsListing.objects.order_by('-id')[:500]
@@ -504,7 +547,6 @@ def select_record_of_the_day():
             'record_price': listing.record_price or '0',  # From listing, not record
             'year': record.year,
             'media_condition': listing.media_condition or '',  # From listing
-            '_is_ebay': False  # This is Discogs data, not eBay
         }
 
         features = bandit.feature_extractor.extract_features(record_data)
@@ -528,6 +570,7 @@ def record_of_the_day(request):
                 d = authenticate_client()
                 release = d.release(record.discogs_id)
                 images = release.images
+
                 if images:
                     record.record_image = images[0]['uri']
                     record.save()
@@ -583,6 +626,13 @@ def rebuild_tfidf_vocab(request):
     vocab_size = 10000
 
     keepers = Record.objects.filter(evaluated=True, wanted=True)
+    
+    if not keepers.exists():
+        return Response({
+            'error': 'No keeper records found',
+            'keeper_count': 0
+        }, status=400)
+    
     keeper_titles = []
     for record in keepers:
         mock_title = create_mock_ebay_title({
@@ -593,10 +643,6 @@ def rebuild_tfidf_vocab(request):
         })
         if mock_title:
             keeper_titles.append(mock_title)
-
-    
-
-    keeper_titles
 
     vectorizer = TitleVectorizer(vocab_size)
     vectorizer.fit(keeper_titles)
@@ -622,6 +668,7 @@ def rebuild_tfidf_vocab(request):
     )
 
     TfIdfDB.objects.filter(is_active=True).exclude(id=similarity_model.id).update(is_active=False)
+    logger.info(f"✅ TF-IDF vocab rebuilt successfully: version={similarity_model.version}, vocab_size={vocab_size}, keepers={keeper_embeddings.shape[0]}")
 
     return Response({
         'success': True,
@@ -632,7 +679,7 @@ def rebuild_tfidf_vocab(request):
 
 @api_view(['POST'])
 def ebay_title_similarity_filter(request):
-    threshold = 0.75
+    threshold = 0.9
     listings = request.data.get('listings', [])
     if not listings: return Response({'error': 'no listings'}, status=400)
     
@@ -685,7 +732,7 @@ def process_annotations(request):
 
 @api_view(['GET'])
 @permission_classes([AllowAny])
-def get_stats(request):
+def discogs_stats(request):
     total_discogs = Record.objects.count()
     evaluated_discogs = Record.objects.filter(evaluated=True).count()
     keepers = Record.objects.filter(evaluated=True, wanted=True).count()
@@ -699,12 +746,6 @@ def get_stats(request):
         discogs_accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
     else:
         discogs_accuracy = 0
-
-    total_ebay = EbayListing.objects.count()
-    evaluated_ebay = EbayListing.objects.filter(evaluated=True).count()
-    enriched_ebay = EbayListing.objects.filter(enriched=True).count()
-
-    training_instances = BanditTrainingInstance.objects.count()
 
     try:
         active_model = BanditModelDB.objects.get(is_active=True)
@@ -722,41 +763,20 @@ def get_stats(request):
     except TfIdfDB.DoesNotExist:
         vocab_size = 0
 
-    last_10_batches = BatchPerformance.objects.all()[:10]
     avg_accuracy = recent_batches.aggregate(Avg('accuracy'))['accuracy__avg'] if recent_batches.exists() else 0
 
     return Response({
-        # For dashboard compatibility
         'total_records': total_discogs,
         'evaluated_records': evaluated_discogs,
         'keeper_count': keepers,
         'keeper_rate': keeper_rate,
         'discogs_accuracy': discogs_accuracy,
-        'ebay_accuracy': 0,  # TODO: implement when eBay batch tracking exists
         'model_version': model_version,
         'total_batches': batch_count,
-        
-        # Detailed breakdown
-        'discogs': {
-            'total': total_discogs,
-            'evaluated': evaluated_discogs,
-            'keepers': keepers,
-            'non_keepers': non_keepers
-        },
-        'ebay': {
-            'total': total_ebay,
-            'evaluated': evaluated_ebay,
-            'enriched': enriched_ebay
-        },
-        'training': {
-            'instances': training_instances,
-            'batch_count': batch_count
-        },
-        'model': {
-            'stats': model_stats,
-            'vocab_size': vocab_size,
-            'avg_accuracy': round(avg_accuracy * 100, 1) if avg_accuracy else 0  # Convert to percentage
-        }
+        'keepers': keepers,
+        'non_keepers': non_keepers,
+        'vocab_size': vocab_size,
+        'avg_accuracy': round(avg_accuracy * 100, 1) if avg_accuracy else 0,
     })
 
 @api_view(['GET'])
@@ -844,9 +864,7 @@ def todo_detail(request, todo_id):
 def ebay_stats(request):
     """Get eBay annotation statistics"""
     total_listings = EbayListing.objects.count()
-    evaluated = EbayListing.objects.filter(evaluated=True).count()
-    keepers = EbayListing.objects.filter(evaluated=True, wanted=True).count()
-    keeper_rate = (keepers / evaluated * 100) if evaluated else 0
+    keepers = EbayKeeper.objects.count()
     
     # Calculate rolling 100-batch accuracy
     recent_batches = EbayBatchPerformance.objects.all()[:100]
@@ -854,12 +872,15 @@ def ebay_stats(request):
         total_correct = sum(b.correct for b in recent_batches)
         total_evaluated = sum(b.total for b in recent_batches)
         accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
+        evaluated = total_evaluated
     else:
         accuracy = 0
+        evaluated = 0
     
     return Response({
         'total_listings': total_listings,
         'evaluated': evaluated,
+        'keepers': keepers,
         'ebay_accuracy': accuracy,
         'total_batches': EbayBatchPerformance.objects.count()
     })
@@ -899,3 +920,75 @@ def record_ebay_batch_performance(request):
         'rolling_accuracy': rolling_accuracy,
         'total_batches': EbayBatchPerformance.objects.count()
     })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def title_similarity_analysis_v2(request):
+    """Check title similarity WITHOUT self-matches"""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+    
+    all_records = Record.objects.filter(evaluated=True)
+    
+    records_to_test = list(all_records[:200])  # Test 200 records
+    
+    titles = []
+    labels = []
+    
+    for record in records_to_test:
+        listing = DiscogsListing.objects.filter(record=record).first()
+        if not listing:
+            continue
+            
+        record_dict = trainer.listing_to_dict(listing)
+        title = create_mock_ebay_title(record_dict)
+        if title:
+            titles.append(normalize_title(title))
+            labels.append(1 if record.wanted else 0)
+    
+    vectorizer = TfidfVectorizer(max_features=1000)
+    title_vectors = vectorizer.fit_transform(titles)
+    
+    # Calculate similarity matrix
+    sim_matrix = cosine_similarity(title_vectors)
+    
+    # For each record, find max similarity to OTHER records of same class
+    keeper_sims = []
+    non_keeper_sims = []
+    
+    for i in range(len(labels)):
+        # Mask out self
+        sim_matrix[i, i] = 0
+        
+        if labels[i] == 1:  # This is a keeper
+            # Find max similarity to other keepers
+            other_keeper_indices = [j for j in range(len(labels)) if labels[j] == 1 and j != i]
+            if other_keeper_indices:
+                max_sim = max(sim_matrix[i, j] for j in other_keeper_indices)
+                keeper_sims.append(max_sim)
+        else:  # Non-keeper
+            # Find max similarity to keepers
+            keeper_indices = [j for j in range(len(labels)) if labels[j] == 1]
+            if keeper_indices:
+                max_sim = max(sim_matrix[i, j] for j in keeper_indices)
+                non_keeper_sims.append(max_sim)
+    
+    keeper_avg = np.mean(keeper_sims) if keeper_sims else 0
+    non_keeper_avg = np.mean(non_keeper_sims) if non_keeper_sims else 0
+    
+    return Response({
+        'keeper_avg_similarity_to_other_keepers': round(keeper_avg, 3),
+        'non_keeper_avg_similarity_to_keepers': round(non_keeper_avg, 3),
+        'difference': round(keeper_avg - non_keeper_avg, 3),
+        'keeper_rate': round(sum(labels) / len(labels) * 100, 1)
+    })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def test_flow(request):
+    recent_listings = DiscogsListing.objects.order_by('-id')[:500]
+    print(recent_listings)
+    bandit = BanditTrainer()
+    print(bandit)
+    success = bandit.load_latest_model()
+    print(success)

@@ -10,6 +10,7 @@ class NeuralContextualBandit(nn.Module):
                  hidden_dims = [128, 64, 32], 
                  embedding_dim = 64,
                  tfidf_dim = 1000,
+                 tfidf_projection_dim = 64,
                  dropout_rate = 0.4):
         super().__init__()
         
@@ -22,9 +23,16 @@ class NeuralContextualBandit(nn.Module):
             output_dim=embedding_dim,
             dropout_rate=dropout_rate
         )
+
+        self.tfidf_projection = nn.Sequential(
+            nn.Linear(tfidf_dim, 256),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate),
+            nn.Linear(256, tfidf_projection_dim)
+        )
         
         head_layers = []
-        prev_dim = embedding_dim + tfidf_dim
+        prev_dim = embedding_dim + tfidf_projection_dim
 
         for hidden_dim in hidden_dims:
             head_layers.extend([
@@ -46,7 +54,8 @@ class NeuralContextualBandit(nn.Module):
         encoder_features = features[:, :-self.tfidf_dim]  # Everything except last 100
         tfidf_features = features[:, -self.tfidf_dim:] 
         embeddings = self.encoder(encoder_features)
-        combined = torch.cat([embeddings, tfidf_features], dim=1)
+        tfidf_projected = self.tfidf_projection(tfidf_features)
+        combined = torch.cat([embeddings, tfidf_projected], dim=1)
         hidden = self.prediction_head(combined)
         mean = torch.sigmoid(self.mean_layer(hidden))
         log_var = self.log_var_layer(hidden)

@@ -31,31 +31,48 @@ const EbayAnnotation = () => {
     previousPage, hasNextPage, hasPreviousPage
   } = Paginate(listings, PAGE_SIZE);
   
-  const loadSimilarListings = async () => {
+  const checkSessionAndLoad = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/ebay/unannotated', {
+      const sessionResponse = await fetch('http://localhost:8000/api/ebay/session/status', {
         credentials: 'include'
       });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('📊 DATA:', data.listings.length, data.listings[0]); // ✅ Add this
-        console.log('Received data:', data);
-        console.log('📄 Current page listings:', currentPageListings.length, currentPageListings[0]);
+      const sessionData = await sessionResponse.json();
 
-        setListings(data.listings || []);
+      if (sessionData.needs_refresh) {
+        const newSessionResponse = await fetch('http://localhost:8000/api/ebay/session/new', {
+          credentials: 'include',
+          method: 'POST'
+        });
+        
+        if (newSessionResponse.ok) {
+          const data = await newSessionResponse.json();
+          setListings(data.listings || []);
+        } else {
+          setError('Failed to start new session');
+        }
       } else {
-        setError('Failed to load listings');
+        const listingsResponse = await fetch('http://localhost:8000/api/ebay/session/current', {
+          method: 'GET',
+          credentials: 'include'
+        });
+
+        if (listingsResponse.ok) {
+          const data = await listingsResponse.json();
+          setListings(data.listings || []);
+        } else {
+          setError('Failed to load current session');
+        }
       }
     } catch (err) {
-      setError('Failed to load listings');
+      setError('Failed to load session')
     } finally {
       setLoading(false);
     }
   };
   
   useEffect(() => {
-    loadSimilarListings();
+    checkSessionAndLoad();
   }, []);
 
   const toggleLabel = (listingId: number, index: number, event: React.MouseEvent): void => {
@@ -143,16 +160,28 @@ const EbayAnnotation = () => {
       }
       
       setCompletedPages(prev => prev + 1);
-      nextPage();  
+
+      const remainingListings = listings.filter(
+        listing => !currentPageListings.find(curr => curr.ebay_id === listing.ebay_id)
+      );
+
+      setListings(remainingListings);
       setKeeperIds(new Set());
       window.scrollTo(0, 0);
-      
+
+      if (remainingListings.length === 0) {
+        navigate('/training/ebay/annotate_keepers');
+      }
     } catch (err) {
       setError('Failed to submit annotations');
     } finally {
       setSubmitting(false);
     }
   };
+
+  const finishAndAnnotateKeepers = async () => {
+    navigate('/training/ebay/annotate_keepers');
+  }
 
   if (loading) {
     return (
@@ -183,9 +212,17 @@ const EbayAnnotation = () => {
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-            <h1 className="text-3xl font-bold text-slate-700">Similar Records on eBay</h1>
-            <div className="mt-2 sm:mt-0 text-sm text-slate-500">
-              {completedPages} pages completed • {listings.length} similar records found
+            <h1 className="text-3xl font-bold text-slate-700">first pass of td-idf</h1>
+            <div className="flex items-center gap-4">
+              <button
+                onClick={finishAndAnnotateKeepers}
+                className="px-4 py-2 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 transition-colors"
+              >
+                Finish & Annotate Keepers
+              </button>
+              <div className="text-sm text-slate-500">
+                {completedPages} pages completed • {listings.length} similar records found
+              </div>
             </div>
           </div>
 

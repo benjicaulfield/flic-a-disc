@@ -18,11 +18,17 @@ import (
 	"gorm.io/gorm"
 )
 
+var (
+	sessionMutex      sync.Mutex
+	sessionInProgress bool
+)
+
 type EbayHandler struct {
-	ebayClient *ebay.Client
-	db         *gorm.DB
-	mu         sync.RWMutex
-	listings   []gin.H
+	ebayClient   *ebay.Client
+	db           *gorm.DB
+	mu           sync.RWMutex
+	listings     []gin.H
+	sessionStart time.Time // Single global session tracker
 }
 
 func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
@@ -33,17 +39,155 @@ func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
 	return h
 }
 
+// ============= SESSION MANAGEMENT =============
+
+func (h *EbayHandler) CheckSessionStatus(c *gin.Context) {
+	h.mu.RLock()
+	sessionStart := h.sessionStart
+	h.mu.RUnlock()
+
+	needsRefresh := sessionStart.IsZero() || time.Since(sessionStart) > 24*time.Hour
+
+	var sessionAge float64
+	if !sessionStart.IsZero() {
+		sessionAge = time.Since(sessionStart).Hours()
+	}
+
+	log.Printf("📊 Session check: needs_refresh=%v, age=%.1fh", needsRefresh, sessionAge)
+
+	c.JSON(200, gin.H{
+		"needs_refresh":     needsRefresh,
+		"session_age_hours": sessionAge,
+	})
+}
+
+func (h *EbayHandler) NewSession(c *gin.Context) {
+	sessionMutex.Lock()
+	if sessionInProgress {
+		sessionMutex.Unlock()
+		log.Println("⚠️  Session already in progress, skipping duplicate request")
+
+		// Return current unevaluated listings instead
+		var listings []models.EbayListing
+		h.db.Order("end_date ASC").Find(&listings)
+
+		response := []gin.H{}
+		for _, listing := range listings {
+			response = append(response, gin.H{
+				"id":          listing.ID,
+				"ebay_id":     listing.EbayID,
+				"ebay_title":  listing.EbayTitle,
+				"price":       listing.Price,
+				"current_bid": listing.CurrentBid,
+				"end_date":    listing.EndDate,
+			})
+		}
+
+		c.JSON(200, gin.H{
+			"listings":       response,
+			"from_cache":     true,
+			"total_listings": len(response),
+		})
+		return
+	}
+	sessionInProgress = true
+	sessionMutex.Unlock()
+
+	defer func() {
+		sessionMutex.Lock()
+		sessionInProgress = false
+		sessionMutex.Unlock()
+	}()
+
+	log.Println("🔄 Starting new session - clearing all eBay listings and fetching fresh data")
+
+	// DELETE all eBay listings from database
+	if err := h.db.Where("1 = 1").Delete(&models.EbayListing{}).Error; err != nil {
+		log.Printf("❌ Failed to clear listings: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to clear old listings"})
+		return
+	}
+
+	log.Println("✅ Cleared all eBay listings from database")
+
+	// Fetch and cache new listings (includes TF-IDF filter + metadata enrichment)
+	h.fetchAndCacheListings()
+
+	// Set session start time
+	h.mu.Lock()
+	h.sessionStart = time.Now()
+	h.mu.Unlock()
+
+	// Get the fresh listings that were just saved
+	var listings []models.EbayListing
+	h.db.Order("end_date ASC").Find(&listings)
+
+	response := []gin.H{}
+	for _, listing := range listings {
+		response = append(response, gin.H{
+			"id":          listing.ID,
+			"ebay_id":     listing.EbayID,
+			"ebay_title":  listing.EbayTitle,
+			"price":       listing.Price,
+			"current_bid": listing.CurrentBid,
+			"end_date":    listing.EndDate,
+		})
+	}
+
+	log.Printf("✅ New session started with %d listings", len(response))
+
+	c.JSON(200, gin.H{
+		"listings":        response,
+		"session_started": time.Now(),
+		"total_listings":  len(response),
+	})
+}
+
+func (h *EbayHandler) CurrentSession(c *gin.Context) {
+	log.Println("📋 Continuing current session - loading remaining unevaluated listings")
+
+	var listings []models.EbayListing
+
+	// Get unevaluated listings from current session
+	//h.db.Where("evaluated = ?", false).
+	//Order("end_date ASC").
+	//Find(&listings)
+
+	response := []gin.H{}
+	for _, listing := range listings {
+		response = append(response, gin.H{
+			"id":          listing.ID,
+			"ebay_id":     listing.EbayID,
+			"ebay_title":  listing.EbayTitle,
+			"price":       listing.Price,
+			"current_bid": listing.CurrentBid,
+			"end_date":    listing.EndDate,
+		})
+	}
+
+	log.Printf("📊 Continuing session with %d unevaluated listings", len(response))
+
+	c.JSON(200, gin.H{
+		"listings":           response,
+		"continuing_session": true,
+		"remaining":          len(response),
+	})
+}
+
+// ============= FETCH & CACHE =============
+
 func (h *EbayHandler) fetchAndCacheListings() {
 	log.Println("Fetching eBay auctions ending in next 24-48 hours...")
 
-	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(24)
+	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(48)
 	if err != nil {
 		log.Printf("Failed to fetch listings: %v", err)
 		return
 	}
 
 	now := time.Now()
-	cutoffEnd := now.Add(24 * time.Hour)
+	cutoffStart := now.Add(24 * time.Hour)
+	cutoffEnd := now.Add(48 * time.Hour)
 
 	var raw []gin.H
 	for _, item := range allResults {
@@ -52,7 +196,8 @@ func (h *EbayHandler) fetchAndCacheListings() {
 			continue
 		}
 
-		if endDate.Before(cutoffEnd) && endDate.After(now) {
+		// Filter: 24-48 hours from now
+		if endDate.After(cutoffStart) && endDate.Before(cutoffEnd) {
 			var priceValue string
 			if item.Price != nil {
 				priceValue = item.Price.Value
@@ -75,8 +220,9 @@ func (h *EbayHandler) fetchAndCacheListings() {
 		}
 	}
 
-	log.Printf("Found %d raw listings from ebay", len(raw))
+	log.Printf("Found %d raw listings from eBay (24-48hrs)", len(raw))
 
+	// Filter by TF-IDF similarity (includes vocab rebuild)
 	filteredListings, err := h.filterListingsByTFIDF(raw)
 	if err != nil {
 		log.Printf("Failed to filter listings: %v", err)
@@ -85,7 +231,7 @@ func (h *EbayHandler) fetchAndCacheListings() {
 
 	log.Printf("TF-IDF filter passed %d/%d listings", len(filteredListings), len(raw))
 
-	// ✅ Save only filtered listings to database
+	// Save only filtered listings to database
 	for _, item := range allResults {
 		// Check if this item passed the filter
 		passed := false
@@ -97,7 +243,7 @@ func (h *EbayHandler) fetchAndCacheListings() {
 		}
 
 		if !passed {
-			continue // Skip listings that didn't pass filter
+			continue
 		}
 
 		var priceValue string
@@ -131,10 +277,29 @@ func (h *EbayHandler) fetchAndCacheListings() {
 	log.Printf("Saved %d filtered listings to database", len(filteredListings))
 }
 
-// ✅ New helper function to call Python filter
 func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
-	filterURL := "http://localhost:8001/ml/ebay_title_similarity_filter/"
+	// STEP 1: Rebuild TF-IDF vocab
+	log.Println("🔧 Rebuilding TF-IDF vocabulary from keeper records...")
 
+	rebuildURL := "http://localhost:8001/ml/rebuild_tfidf_vocab/"
+	rebuildResp, err := http.Post(rebuildURL, "application/json", nil)
+	if err != nil {
+		log.Printf("⚠️  Failed to rebuild vocab, continuing with existing: %v", err)
+	} else {
+		defer rebuildResp.Body.Close()
+		var rebuildResult map[string]interface{}
+		if err := json.NewDecoder(rebuildResp.Body).Decode(&rebuildResult); err == nil {
+			log.Printf("✅ Vocab rebuilt: version=%s, vocab_size=%v, keepers=%v",
+				rebuildResult["version"],
+				rebuildResult["vocab_size"],
+				rebuildResult["keeper_count"])
+		}
+	}
+
+	// STEP 2: Filter listings with TF-IDF
+	log.Println("🔍 Filtering listings with TF-IDF similarity...")
+
+	filterURL := "http://localhost:8001/ml/ebay_title_similarity_filter/"
 	requestBody := map[string]interface{}{
 		"listings": listings,
 	}
@@ -161,10 +326,88 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 	return result.Passed, nil
 }
 
-func (h *EbayHandler) TriggerFetch(c *gin.Context) {
-	h.fetchAndCacheListings()
-	c.JSON(200, gin.H{"message": "Fetch complete"})
+func (h *EbayHandler) EnrichKeepers(c *gin.Context) {
+	log.Println("🔍 Starting keeper enrichment process...")
+
+	// Get unenriched keepers from Python DB
+	enrichURL := "http://localhost:8001/ml/ebay/unenriched_keepers/"
+	resp, err := http.Get(enrichURL)
+	if err != nil {
+		log.Printf("Failed to get unenriched keepers: %v", err)
+		c.JSON(500, gin.H{"error": "Failed to get keepers"})
+		return
+	}
+	defer resp.Body.Close()
+
+	var keepersResponse struct {
+		Keepers []struct {
+			EbayID string `json:"ebay_id"`
+		} `json:"keepers"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&keepersResponse); err != nil {
+		log.Printf("Failed to decode response: %v", err)
+		c.JSON(500, gin.H{"error": "Invalid response"})
+		return
+	}
+
+	log.Printf("📊 Found %d unenriched keepers", len(keepersResponse.Keepers))
+
+	enrichedCount := 0
+	for _, keeper := range keepersResponse.Keepers {
+		// Call eBay API to get full metadata
+		itemDetails, err := h.ebayClient.LookupByItemID(keeper.EbayID)
+		if err != nil {
+			log.Printf("⚠️  Failed to lookup %s: %v", keeper.EbayID, err)
+			continue
+		}
+
+		// Parse metadata
+		artist, album, label, format, year, recordCondition, sleeveCondition, genre, style :=
+			parseRecordMetadata(itemDetails)
+
+		// Send enriched data back to Python
+		enrichedData := map[string]interface{}{
+			"ebay_id":          keeper.EbayID,
+			"artist":           artist,
+			"album":            album,
+			"label":            label,
+			"format":           format,
+			"year":             year,
+			"record_condition": recordCondition,
+			"sleeve_condition": sleeveCondition,
+			"genre":            genre,
+			"style":            style,
+		}
+
+		jsonData, _ := json.Marshal(enrichedData)
+		updateResp, err := http.Post(
+			"http://localhost:8001/ml/ebay/update_keeper/",
+			"application/json",
+			bytes.NewBuffer(jsonData),
+		)
+
+		if err == nil {
+			updateResp.Body.Close()
+			enrichedCount++
+			if enrichedCount%10 == 0 {
+				log.Printf("   Enriched %d/%d keepers...", enrichedCount, len(keepersResponse.Keepers))
+			}
+		}
+
+		// Rate limiting
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	log.Printf("✅ Enrichment complete: %d keepers enriched", enrichedCount)
+
+	c.JSON(200, gin.H{
+		"success":        true,
+		"enriched_count": enrichedCount,
+	})
 }
+
+// ============= LEGACY ENDPOINTS =============
 
 func (h *EbayHandler) GetEbayAuctionsPage(c *gin.Context) {
 	h.mu.RLock()
@@ -439,7 +682,7 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 	log.Printf("✅ Returning %d enriched listings for annotation", len(results))
 
 	c.JSON(200, gin.H{
-		"listings": results, // All 200
+		"listings": results,
 		"stats": gin.H{
 			"total_listings":    firstPassResult.TotalProcessed,
 			"stage1_candidates": firstPassResult.TopN,
@@ -454,7 +697,7 @@ func (h *EbayHandler) GetUnannotatedListings(c *gin.Context) {
 	// Get all listings that haven't been evaluated yet
 	result := h.db.Where("evaluated = ?", false).
 		Order("end_date ASC").
-		Limit(2000). // Start with first 2000
+		Limit(2000).
 		Find(&listings)
 
 	if result.Error != nil {

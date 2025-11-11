@@ -184,7 +184,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
         credentials: 'include',
       });
       
-      const statsResponse = await fetch('http://localhost:8001/ml/stats/', {
+      const statsResponse = await fetch('http://localhost:8001/ml/discogs/stats/', {
         credentials: 'include',
       });
 

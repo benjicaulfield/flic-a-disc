@@ -20,7 +20,6 @@ interface Stats {
     batch_count: number;
   };
   model: {
-    stats: any;
     vocab_size: number;
     avg_accuracy: number | null;
   };
@@ -34,43 +33,63 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
   const [statsLoading, setStatsLoading] = useState<boolean>(true);
   const [statsError, setStatsError] = useState<string | null>(null);
 
+  const fetchStats = async () => {
+    try {
+      const discogsResponse = await fetch('http://localhost:8001/ml/discogs/stats/');
+      const ebayResponse = await fetch('http://localhost:8001/ml/ebay/stats/');
+      if (!discogsResponse.ok || !ebayResponse.ok) {
+        throw new Error(`FAILURE: ${discogsResponse.status} ${ebayResponse.status}`);
+      }
+      const discogsData = await discogsResponse.json();
+      const ebayData = await ebayResponse.json();
+
+      const combinedStats = {
+        discogs: {
+          total: discogsData.total_records || 0,
+          evaluated: discogsData.evaluated_records || 0,
+          keepers: discogsData.keeper_count || 0,
+          non_keepers: discogsData.non_keepers || 0,
+        },
+        ebay: {
+          total: ebayData.total_listings || 0,
+          evaluated: ebayData.evaluated || 0,
+          enriched: ebayData.keepers || 0, // Using keepers as enriched count
+        },
+        training: {
+          instances: discogsData.evaluated_records || 0, // Total training instances
+          batch_count: discogsData.total_batches || 0,
+        },
+        model: {
+          vocab_size: discogsData.vocab_size || 0,
+          avg_accuracy: discogsData.avg_accuracy ? discogsData.avg_accuracy / 100 : 0, // Convert back to decimal
+        }
+      };
+      setStats(combinedStats);
+    } catch (err) {
+      setStatsError((err as Error).message);
+    } finally {
+      setStatsLoading(false);
+    }
+  };
+
+  const fetchRecordOfTheDay = async () => {
+    try {
+      const response = await fetch('http://localhost:8001/ml/recommend/rotd/');
+      if (!response.ok) {
+        throw new Error("failed to fetch documentation");
+      }
+      const data = await response.json();
+      setRecordOfTheDay(data);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  }
+  
   useEffect(() => {
-    const fetchRecordOfTheDay = async () => {
-      try {
-        const response = await fetch('http://localhost:8001/ml/recommend/rotd');
-        if (!response.ok) {
-          throw new Error("failed to fetch documentation");
-        }
-        const data = await response.json();
-        setRecordOfTheDay(data);
-      } catch (err) {
-        setError((err as Error).message);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    const fetchStats = async () => {
-      try {
-        console.log('Fetching stats from http://localhost:8001/ml/stats/');
-        const response = await fetch('http://localhost:8001/ml/stats/');
-        console.log('Stats response status:', response.status);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch statistics: ${response.status} ${response.statusText}`);
-        }
-        const data = await response.json();
-        console.log('Stats data:', data);
-        setStats(data);
-      } catch (err) {
-        console.error('Stats fetch error:', err);
-        setStatsError((err as Error).message);
-      } finally {
-        setStatsLoading(false);
-      }
-    };
-
-    fetchRecordOfTheDay();
     fetchStats();
+    fetchRecordOfTheDay();
   }, []);
 
   return (
@@ -173,7 +192,7 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
 
           {/* Statistics Section */}
           <div className="section stats-section">
-            <div className="section-header">COLD HARD STATISTICS</div>
+            <div className="section-header">STATISTICS</div>
             <div className="section-content">
               {statsLoading && <p>Loading statistics...</p>}
               {statsError && <p>Error: {statsError}</p>}
