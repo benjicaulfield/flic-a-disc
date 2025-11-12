@@ -37,7 +37,7 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
   useEffect(() => {
     const fetchRecordOfTheDay = async () => {
       try {
-        const response = await fetch('http://localhost:8001/ml/recommend/rotd');
+        const response = await fetch('http://localhost:8001/ml/recommend/rotd/');
         if (!response.ok) {
           throw new Error("failed to fetch documentation");
         }
@@ -189,9 +189,7 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
                   
                   <div className="stats-group">
                     <h3>eBay Listings</h3>
-                    <p><strong>Total Listings:</strong> {stats.ebay.total.toLocaleString()}</p>
-                    <p><strong>Evaluated:</strong> {stats.ebay.evaluated.toLocaleString()}</p>
-                    <p><strong>Enriched:</strong> {stats.ebay.enriched.toLocaleString()}</p>
+                    <p><strong>Total Listings:</strong> {stats.ebay.total.toLocaleString() ?? '0'}</p>
                   </div>
                   
                   <div className="stats-group">

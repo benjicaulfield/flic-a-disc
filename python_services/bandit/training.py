@@ -39,7 +39,8 @@ class BanditTrainer:
                 'haves': listing.record.haves,
                 'year': listing.record.year,
                 'record_price': listing.record_price,      
-                'media_condition': listing.media_condition  
+                'media_condition': listing.media_condition,
+                '_is_ebay': False 
             }
             records.append(record_dict)
             labels.append(listing.record.wanted)  # The evaluation decision
@@ -63,12 +64,11 @@ class BanditTrainer:
             label_vocab_size=500,
             genre_vocab_size=100,
             style_vocab_size=200,
-            title_tfidf_features=1000
+            title_tfidf_features=1000,
         )
         
         print("🔧 Fitting feature extractor...")
         self.feature_extractor.fit(records)
-        
         vocab_sizes = self.feature_extractor.get_vocab_sizes()
         embedding_dims = self.feature_extractor.get_embedding_dims()
         vocab_sizes_converted = {
@@ -93,8 +93,8 @@ class BanditTrainer:
             embedding_dims=embedding_dims_converted,
             hidden_dims=[128, 64, 32],
             embedding_dim=64,
-            tfidf_dim=1000,
-            dropout_rate=0.3
+            tfidf_dim=len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_), 
+            dropout_rate=0.2
         )
         print(f"✅ Model created with {sum(p.numel() for p in self.model.parameters())} parameters")
         
@@ -123,15 +123,23 @@ class BanditTrainer:
         print(f"\n🎯 Starting training for {epochs} epochs...")
         print("-" * 60)
         
-        history = self.model.fit(
-            feature_extractor=self.feature_extractor,
-            training_records=records,
-            labels=labels,
-            triplet_records=triplet_data,
-            epochs=epochs,
-            batch_size=batch_size,
-            learning_rate=learning_rate
-        )
+        try: 
+            history = self.model.fit(
+                feature_extractor=self.feature_extractor,
+                training_records=records,
+                labels=labels,
+                triplet_records=triplet_data,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate
+            )
+        except Exception as e:
+            import traceback
+            print("=" * 60)
+            print("FULL TRACEBACK:")
+            print(traceback.format_exc())
+            print("=" * 60)
+            raise
         
         print("-" * 60)
         print(f"✅ Training complete!")
@@ -350,6 +358,8 @@ class BanditTrainer:
             
             vocab_sizes = model_data['vocab_sizes']
             embedding_dims = model_data['embedding_dims']
+            actual_tfidf_dim = len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_)
+
             
             # CONVERT KEY NAMES (same as in train_new_model)
             vocab_sizes_converted = {
@@ -370,6 +380,7 @@ class BanditTrainer:
                 vocab_sizes=vocab_sizes_converted,      # Use converted
                 embedding_dims=embedding_dims_converted, # Use converted
                 hidden_dims=[128, 64, 32],
+                tfidf_dim = actual_tfidf_dim,
                 dropout_rate=0.2
             )
             

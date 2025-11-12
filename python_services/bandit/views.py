@@ -167,7 +167,9 @@ def health(request):
         'feature_extractor_loaded': trainer.feature_extractor is not None
     })
 
-@api_view(['POST'])
+
+@api_view(['POST', 'GET'])
+@permission_classes([AllowAny])
 def retrain(request):
     """Force complete retraining from scratch"""
     try:
@@ -482,6 +484,14 @@ def ebay_annotate(request):
         'errors': errors if errors else None
     })
 
+@api_view(['GET'])
+def test(request):
+    recent_listings = DiscogsListing.objects.order_by('-id')[:500]
+    bandit = BanditTrainer()
+    success = bandit.train_new_model()
+    print(success)
+    return Response("ok")
+
 def select_record_of_the_day():
     recent_listings = DiscogsListing.objects.order_by('-id')[:500]
     bandit = BanditTrainer()
@@ -701,8 +711,6 @@ def get_stats(request):
         discogs_accuracy = 0
 
     total_ebay = EbayListing.objects.count()
-    evaluated_ebay = EbayListing.objects.filter(evaluated=True).count()
-    enriched_ebay = EbayListing.objects.filter(enriched=True).count()
 
     training_instances = BanditTrainingInstance.objects.count()
 
@@ -745,8 +753,6 @@ def get_stats(request):
         },
         'ebay': {
             'total': total_ebay,
-            'evaluated': evaluated_ebay,
-            'enriched': enriched_ebay
         },
         'training': {
             'instances': training_instances,

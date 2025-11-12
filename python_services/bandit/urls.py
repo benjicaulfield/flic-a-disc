@@ -21,4 +21,5 @@ urlpatterns = [
     path('todos/<int:todo_id>/', views.todo_detail, name='todo_detail'),
     path('ebay/stats/', views.ebay_stats, name='ebay_stats'),
     path('ebay/batch_performance/', views.record_ebay_batch_performance, name='record_ebay_batch_performance'),
+    path('test', views.test, name='test'),
 ]

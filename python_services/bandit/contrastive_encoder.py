@@ -4,12 +4,13 @@ import torch.nn.functional as F
 
 class ContrastiveEncoder(nn.Module):
 
-    def __init__(self, vocab_sizes, embedding_dims, hidden_dims = [256, 128],
+    def __init__(self, vocab_sizes, embedding_dims, tfidf_dim=1000, hidden_dims = [256, 128],
                  output_dim = 64, dropout_rate = 0.2):
         super().__init__()
         self.vocab_sizes = vocab_sizes
         self.embedding_dims = embedding_dims
         self.output_dim = output_dim
+        self.tfidf_dim = tfidf_dim
 
         self.artist_embedding = nn.Embedding(
             vocab_sizes['artist_vocab_size'],
@@ -34,6 +35,12 @@ class ContrastiveEncoder(nn.Module):
             embedding_dims['style_embedding_dim'],
             padding_idx=0
         )
+
+        self.tfidf_projection = nn.Sequential(
+            nn.Linear(tfidf_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        )
         
         total_input_dim = (
             embedding_dims['artist_embedding_dim'] +      # 64
@@ -41,7 +48,8 @@ class ContrastiveEncoder(nn.Module):
             3 * embedding_dims['genre_embedding_dim'] +   # 48 (3 genres)
             3 * embedding_dims['style_embedding_dim'] +   # 48 (3 styles)
             5 +  # numerical: wants, haves, ratio, price, year
-            8    # condition one-hot
+            8 +  # condition one-hot
+            64
         ) 
 
         layers = []
@@ -61,12 +69,17 @@ class ContrastiveEncoder(nn.Module):
         self.normalize = True
 
     def forward(self, features):
-        artist_idx = features[:, 0].long()
-        label_idx = features[:, 1].long()
-        genre_idx = features[:, 2:5].long()
-        style_idx = features[:, 5:8].long()
-        numerical = features[:, 8:13]
-        condition = features[:, 13:21]
+
+        structured = features[:, :-self.tfidf_dim]
+        tfidf = features[:, -self.tfidf_dim:]
+        artist_idx = structured[:, 0].long()
+        label_idx = structured[:, 1].long()
+        genre_idx = structured[:, 2:5].long()
+        style_idx = structured[:, 5:8].long()
+        numerical = structured[:, 8:13]
+        condition = structured[:, 13:21]
+
+        tfidf_compressed = self.tfidf_projection(tfidf)
 
         artist_embedding = self.artist_embedding(artist_idx)
         label_embedding = self.label_embedding(label_idx)
@@ -80,7 +93,7 @@ class ContrastiveEncoder(nn.Module):
         all_features = torch.cat([artist_embedding, label_embedding, 
                                   genre_embedding_0, genre_embedding_1, genre_embedding_2,
                                   style_embedding_0, style_embedding_1, style_embedding_2,
-                                  numerical, condition], dim=1)
+                                  numerical, condition, tfidf_compressed], dim=1)
         
         embeddings = self.encoder(all_features)
 

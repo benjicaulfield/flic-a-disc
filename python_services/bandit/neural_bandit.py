@@ -18,6 +18,7 @@ class NeuralContextualBandit(nn.Module):
         self.encoder = ContrastiveEncoder(
             vocab_sizes=vocab_sizes,
             embedding_dims=embedding_dims,
+            tfidf_dim=tfidf_dim,
             hidden_dims=[256, 128],
             output_dim=embedding_dim,
             dropout_rate=dropout_rate
@@ -43,9 +44,10 @@ class NeuralContextualBandit(nn.Module):
         return self.encoder(features)
 
     def forward(self, features):
-        encoder_features = features[:, :-self.tfidf_dim]  # Everything except last 100
-        tfidf_features = features[:, -self.tfidf_dim:] 
-        embeddings = self.encoder(encoder_features)
+
+        embeddings = self.encoder(features)
+
+        tfidf_features = features[:, -self.tfidf_dim:]
         combined = torch.cat([embeddings, tfidf_features], dim=1)
         hidden = self.prediction_head(combined)
         mean = torch.sigmoid(self.mean_layer(hidden))
@@ -69,6 +71,7 @@ class NeuralContextualBandit(nn.Module):
             mean, variance = self.forward(features)
             noise = torch.randn_like(mean) * torch.sqrt(variance)
             sample = mean + noise
+            sample = torch.clamp(sample, 0.0, 1.0)
             samples.append(sample)
         
         sampled_rewards = torch.stack(samples).mean(dim=0)
@@ -91,13 +94,15 @@ class NeuralContextualBandit(nn.Module):
 
         triplet_loss = torch.tensor(0.0).to(features.device)
         if triplet_data is not None:
-            anchor_enc = triplet_data['anchor'][:, :-self.tfidf_dim]
-            positive_enc = triplet_data['positive'][:, :-self.tfidf_dim]
-            negative_enc = triplet_data['negative'][:, :-self.tfidf_dim]
+            # Pass full features to encoder - it handles TF-IDF internally
+            anchor_emb = self.encoder(triplet_data['anchor'])
+            positive_emb = self.encoder(triplet_data['positive'])
+            negative_emb = self.encoder(triplet_data['negative'])
             
-            anchor_emb = self.encoder(anchor_enc)
-            positive_emb = self.encoder(positive_enc)
-            negative_emb = self.encoder(negative_enc)
+            triplet_loss = self.encoder.triplet_loss(
+                anchor_emb, positive_emb, negative_emb,
+                margin=1.0
+            )
             
             triplet_loss = self.encoder.triplet_loss(
                 anchor_emb, positive_emb, negative_emb,
@@ -125,11 +130,17 @@ class NeuralContextualBandit(nn.Module):
 
         features = feature_extractor.extract_batch_features(training_records)
         features_tensor = torch.FloatTensor(features)
+        print(f"🔍 Main features shape: {features_tensor.shape}")
+
         labels_tensor = torch.FloatTensor(labels)
+        print(f"🔍 Labels shape: {labels_tensor.shape}")
+
 
         triplet_features = None
         if triplet_records is not None:
             anchor_features = feature_extractor.extract_batch_features(triplet_records['anchors'])
+            print(f"🔍 Anchor features shape: {anchor_features.shape}")
+
             positive_features = feature_extractor.extract_batch_features(triplet_records['positives'])
             negative_features = feature_extractor.extract_batch_features(triplet_records['negatives'])
             
@@ -138,6 +149,8 @@ class NeuralContextualBandit(nn.Module):
                 'positive': torch.FloatTensor(positive_features),
                 'negative': torch.FloatTensor(negative_features)
             }
+            print(f"🔍 Triplet anchor tensor shape: {triplet_features['anchor'].shape}")
+
 
         n_train = int(0.8 * len(features_tensor))
         train_features = features_tensor[:n_train]
@@ -162,13 +175,20 @@ class NeuralContextualBandit(nn.Module):
                 batch_labels = train_labels[i:i+batch_size]
                 
                 batch_triplets = None
-                if triplet_features is not None:
-                    indices = torch.randperm(len(triplet_features['anchor']))[:len(batch_features)]
-                    batch_triplets = {
-                        'anchor': triplet_features['anchor'][indices],
-                        'positive': triplet_features['positive'][indices],
-                        'negative': triplet_features['negative'][indices]
-                    }
+                if triplet_features is not None and len(triplet_features['anchor']) > 0:
+                    n_samples = min(len(batch_features), len(triplet_features['anchor']))
+                    if n_samples > 0:
+                        indices = torch.randperm(len(triplet_features['anchor']))[:n_samples]
+                        batch_triplets = {
+                            'anchor': triplet_features['anchor'][indices],
+                            'positive': triplet_features['positive'][indices],
+                            'negative': triplet_features['negative'][indices]
+                        }
+                        # Ensure 2D shape even for single sample
+                        if batch_triplets['anchor'].dim() == 1:
+                            batch_triplets['anchor'] = batch_triplets['anchor'].unsqueeze(0)
+                            batch_triplets['positive'] = batch_triplets['positive'].unsqueeze(0)
+                            batch_triplets['negative'] = batch_triplets['negative'].unsqueeze(0)
 
                 optimizer.zero_grad()
                 
