@@ -54,8 +54,6 @@ class EbayListing(models.Model):
     genre = models.CharField(max_length=100, blank=True)
     style = models.CharField(max_length=100, blank=True)
     
-    wanted = models.BooleanField(default=False)
-    evaluated = models.BooleanField(default=False)
     saved = models.BooleanField(default=False)
     enriched = models.BooleanField(default=False)
 

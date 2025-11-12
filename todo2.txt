@@ -158,3 +158,16 @@ Validate embeddings cluster properly
 
 Absolutely — here’s the **concise high-level summary** so you can restart cleanly and know exactly what’s next.
 
+- If the project is a web API, include “API Endpoints” section with request/response examples and authentication setup.
+- If the project uses Docker, include Dockerfile and docker-compose.yml usage examples with docker build and docker run commands. Include troubleshooting for build errors, port conflicts, and environment variables.
+- If the project includes a CLI, provide command syntax, flag tables, and workflow examples.
+- If the project uses environment variables, create a configuration table with names, defaults, and examples.
+- If the project depends on a database, include setup, migration, seeding, and backup sections.
+- If the project uses CI/CD, add a section for pipeline setup referencing web_search-verified configurations.
+- If the project mentions machine learning or data processing, add dataset setup, training, and evaluation sections.
+- If the project involves front-end frameworks (React, Vue, Angular), include build and development server commands, environment setup, and deployment instructions.
+- If the project is microservices-based, add orchestration guidance (Docker Compose/Kubernetes), inter-service communication overview, and startup ordering.
+- If the project uses a package manager, include common installation errors (permissions, missing dependencies).
+- If it includes APIs, add FAQs about authentication, rate limiting, and JSON format issues.
+- If the project depends on system binaries, add platform-specific path or version troubleshooting.
+- If the project uses environment variables, include common .env formatting mistakes and fixes.

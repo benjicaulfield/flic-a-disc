@@ -14,7 +14,7 @@ class RecordFeatureExtractor:
                  genre_vocab_size = 100,
                  style_vocab_size = 200,
                  embedding_dims = None,
-                 title_tfidf_features=10000):
+                 title_tfidf_features=1000):
         
         self.artist_vocab_size = artist_vocab_size
         self.label_vocab_size = label_vocab_size
@@ -338,17 +338,25 @@ class RecordFeatureExtractor:
         else:
             norm_title = create_mock_ebay_title(record)
         
-        title_tfidf = self.title_vectorizer.transform(norm_title)
+        title_tfidf = self.title_vectorizer.transform(norm_title).flatten()
+        # Try to make it a flat array
+        if hasattr(title_tfidf, 'flatten'):
+            title_tfidf = title_tfidf.flatten()
+        elif hasattr(title_tfidf, 'tolist'):
+            title_tfidf = title_tfidf.tolist()
+            
         features.extend(title_tfidf)
 
         return np.array(features, dtype=np.float32)
-    
+            
     def extract_batch_features(self, records):
         if not self.is_fitted: raise ValueError("FIT FIRST")
 
         feature_vectors = []
-        for record in records:
+        for i, record in enumerate(records):
             features = self.extract_features(record)
             feature_vectors.append(features)
         
-        return np.vstack(feature_vectors)
+        stacked = np.vstack(feature_vectors)
+        print(f"🔍 Final stacked shape: {stacked.shape}")
+        return stacked
