@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"time"
 
-	"flic-a-disc/internal/config"
+	"github.com/benjicaulfield/flic-a-disc/internal/config"
 )
 
 type ExternalService struct {

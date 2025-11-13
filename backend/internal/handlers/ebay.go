@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/csv"
 	"encoding/json"
-	"flic-a-disc/internal/ebay"
-	"flic-a-disc/internal/models"
 	"fmt"
 	"log"
 	"net/http"
@@ -13,6 +11,9 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/benjicaulfield/flic-a-disc/internal/ebay"
+	"github.com/benjicaulfield/flic-a-disc/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"

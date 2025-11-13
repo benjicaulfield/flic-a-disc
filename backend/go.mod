@@ -1,4 +1,4 @@
-module flic-a-disc
+module github.com/benjicaulfield/flic-a-disc
 
 go 1.23.0
 

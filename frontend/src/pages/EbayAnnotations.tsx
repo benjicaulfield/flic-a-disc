@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Paginate } from '../hooks/Paginate';
+import { apiFetch } from '../api/client';
 
 interface BasicEbayListing {
   id: number;
@@ -34,7 +35,7 @@ const EbayAnnotation = () => {
   const loadSimilarListings = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/ebay/unannotated', {
+      const response = await apiFetch('/api/ebay/unannotated', {
         credentials: 'include'
       });
       if (response.ok) {
@@ -121,7 +122,7 @@ const EbayAnnotation = () => {
         label: keeperIds.has(listing.ebay_id)
       }));
 
-      const response = await fetch('http://localhost:8001/ml/ebay/annotated/', {
+      const response = await fetch('https://flic-a-disc.com/ml/ebay/annotated/', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ annotations: allListings })
@@ -131,7 +132,7 @@ const EbayAnnotation = () => {
         const result = await response.json();
 
         if (result.correct !== undefined && result.total !== undefined) {
-          await fetch('http://localhost:8001/ml/ebay/batch_performance/', {
+          await fetch('https://flic-a-disc.com/ml/ebay/batch_performance/', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

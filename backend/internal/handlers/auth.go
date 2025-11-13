@@ -7,7 +7,7 @@ import (
 	"os"
 	"time"
 
-	"flic-a-disc/internal/models"
+	"github.com/benjicaulfield/flic-a-disc/internal/models"
 
 	"github.com/gin-gonic/gin"
 	"github.com/golang-jwt/jwt/v5"

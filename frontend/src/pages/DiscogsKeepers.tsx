@@ -1,6 +1,7 @@
 import { useEffect, useState, Fragment } from 'react';
 import type { DiscogsRecord, MLData, PerformanceStats } from '../types/interfaces';
 import { Paginate } from '../hooks/Paginate';
+import { apiFetch } from "../api/client";
 
 const DiscogsKeepers = () => {
   const [records, setRecords] = useState<DiscogsRecord[]>([]);
@@ -31,7 +32,7 @@ const DiscogsKeepers = () => {
   const loadPage = async () => {
     try {
       setLoading(true);
-      const response = await fetch('http://localhost:8000/api/discogs/keepers', {
+      const response = await apiFetch("/api/discogs/keepers", {
         credentials: 'include',
       });
           
@@ -59,7 +60,7 @@ const DiscogsKeepers = () => {
 
   const fetchStats = async () => {
     try {
-      const response = await fetch("http://localhost:8000/api/discogs/stats", {
+      const response = await apiFetch("/api/discogs/stats", {
         credentials: 'include',
       });
 
@@ -128,7 +129,7 @@ const DiscogsKeepers = () => {
       }));
 
       // ✅ WAIT for labels to be saved (this creates the BatchPerformance record)
-      await fetch('http://localhost:8000/api/discogs/labels', {
+      await apiFetch("/api/discogs/labels", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -147,7 +148,7 @@ const DiscogsKeepers = () => {
       const { divider } = sortListingsByAgreement();
       
       // ✅ NOW fetch performance (BatchPerformance record exists)
-      const response = await fetch('http://localhost:8000/api/discogs/performance', {
+      const response = await apiFetch('/api/discogs/performance', {
         method: 'POST',
         headers: {'Content-Type': 'application/json' },
         credentials: 'include',

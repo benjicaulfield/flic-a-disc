@@ -850,24 +850,9 @@ def todo_detail(request, todo_id):
 def ebay_stats(request):
     """Get eBay annotation statistics"""
     total_listings = EbayListing.objects.count()
-    evaluated = EbayListing.objects.filter(evaluated=True).count()
-    keepers = EbayListing.objects.filter(evaluated=True, wanted=True).count()
-    keeper_rate = (keepers / evaluated * 100) if evaluated else 0
-    
-    # Calculate rolling 100-batch accuracy
-    recent_batches = EbayBatchPerformance.objects.all()[:100]
-    if recent_batches:
-        total_correct = sum(b.correct for b in recent_batches)
-        total_evaluated = sum(b.total for b in recent_batches)
-        accuracy = (total_correct / total_evaluated * 100) if total_evaluated > 0 else 0
-    else:
-        accuracy = 0
     
     return Response({
-        'total_listings': total_listings,
-        'evaluated': evaluated,
-        'ebay_accuracy': accuracy,
-        'total_batches': EbayBatchPerformance.objects.count()
+        'total_listings': total_listings
     })
 
 @api_view(['POST'])

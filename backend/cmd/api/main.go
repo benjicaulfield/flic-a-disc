@@ -8,9 +8,9 @@ import (
 	"os"
 	"time"
 
-	"flic-a-disc/internal/config"
-	"flic-a-disc/internal/database"
-	"flic-a-disc/internal/handlers"
+	"github.com/benjicaulfield/flic-a-disc/internal/config"
+	"github.com/benjicaulfield/flic-a-disc/internal/database"
+	"github.com/benjicaulfield/flic-a-disc/internal/handlers"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -84,7 +84,9 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-
+	for _, ri := range r.Routes() {
+		fmt.Println(ri.Method, ri.Path)
+	}
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      r,

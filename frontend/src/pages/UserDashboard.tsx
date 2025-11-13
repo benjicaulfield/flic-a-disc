@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { apiFetch, mlFetch } from '../api/client';
 
 interface UserDashboardProps {
   onLogout: () => void;
@@ -55,7 +56,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
 
   const loadTodos = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/todos', {
+      const response = await apiFetch('/api/todos', {
         credentials: 'include',
       });
       if (response.ok) {
@@ -72,7 +73,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     e.preventDefault();
     if (newTodoText.trim()) {
       try {
-        const response = await fetch('http://localhost:8000/api/todos', {
+        const response = await apiFetch('/api/todos', {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -107,7 +108,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     e.preventDefault();
     if (draggedItem) {
       try {
-        const response = await fetch(`http://localhost:8000/api/todos/${draggedItem}`, {
+        const response = await apiFetch(`/api/todos/${draggedItem}`, {
           method: 'PATCH',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -134,7 +135,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   const handleSaveEdit = async () => {
     if (editingId && editText.trim()) {
       try {
-        const response = await fetch(`http://localhost:8000/api/todos/${editingId}`, {
+        const response = await apiFetch(`/api/todos/${editingId}`, {
           method: 'PATCH',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -161,7 +162,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
 
   const handleDeleteTodo = async (id: string) => {
     try {
-      const response = await fetch(`http://localhost:8000/api/todos/${id}`, {
+      const response = await apiFetch(`/api/todos/${id}`, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -180,15 +181,15 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     try {
       setLoading(true);
       
-      const perfResponse = await fetch('http://localhost:8001/ml/performance_history/', {
+      const perfResponse = await mlFetch('/ml/performance_history/', {
         credentials: 'include',
       });
       
-      const statsResponse = await fetch('http://localhost:8001/ml/stats/', {
+      const statsResponse = await mlFetch('/ml/stats/', {
         credentials: 'include',
       });
 
-      const ebayStatsResponse = await fetch('http://localhost:8001/ml/ebay/stats/', {
+      const ebayStatsResponse = await mlFetch('/ml/ebay/stats/', {
         credentials: 'include',
       });
       
