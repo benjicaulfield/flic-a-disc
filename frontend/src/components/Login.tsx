@@ -1,5 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import type { LoginProps } from '../types/interfaces'
+import { apiFetch } from "../api/client";
+
 
 export const Login = ({ onLogin }: LoginProps) => {
   const [username, setUsername] = useState('');
@@ -11,7 +13,7 @@ export const Login = ({ onLogin }: LoginProps) => {
     setError('');
 
     try {
-      const response = await fetch('http://localhost:8000/api/auth/login', {
+      const response = await apiFetch("/api/auth/login", {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

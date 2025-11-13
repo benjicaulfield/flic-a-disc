@@ -10,10 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"flic-a-disc/internal/config"
-	"flic-a-disc/internal/ml"
-	"flic-a-disc/internal/models"
-	"flic-a-disc/internal/services"
+	"github.com/benjicaulfield/flic-a-disc/internal/config"
+	"github.com/benjicaulfield/flic-a-disc/internal/ml"
+	"github.com/benjicaulfield/flic-a-disc/internal/models"
+	"github.com/benjicaulfield/flic-a-disc/internal/services"
 )
 
 type Handler struct {

@@ -6,9 +6,9 @@ import (
 
 	"github.com/joho/godotenv"
 
-	"flic-a-disc/internal/config"
-	"flic-a-disc/internal/database"
-	"flic-a-disc/internal/models"
+	"github.com/benjicaulfield/flic-a-disc/internal/config"
+	"github.com/benjicaulfield/flic-a-disc/internal/database"
+	"github.com/benjicaulfield/flic-a-disc/internal/models"
 
 	"golang.org/x/crypto/bcrypt"
 )

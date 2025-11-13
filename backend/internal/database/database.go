@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"log"
 
-	"flic-a-disc/internal/config"
-	"flic-a-disc/internal/models"
+	"github.com/benjicaulfield/flic-a-disc/internal/config"
+	"github.com/benjicaulfield/flic-a-disc/internal/models"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { apiFetch } from '../api/client';
 
 import type { EbayListing } from '../types/interfaces';
 
@@ -26,7 +27,7 @@ const EbayAuctions = () => {
   const loadListings = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://localhost:8000/api/ebay/auctions');
+      const response = await apiFetch('/api/ebay/auctions');
       const data = await response.json();
       console.log('Keys in first listing:', Object.keys(data.listings[0])); // ← This will show us the exact property names
 
@@ -55,7 +56,7 @@ const EbayAuctions = () => {
     
     setSaving(true);
     try {
-      await fetch('http://localhost:8000/api/ebay/save', {
+      await apiFetch('/api/ebay/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ebay_ids: Array.from(selectedIds) })
