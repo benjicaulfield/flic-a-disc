@@ -19,6 +19,7 @@ git push origin main
 echo "🔄 Pulling changes on droplet..."
 ssh $DROPLET_USER@$DROPLET_IP << 'ENDSSH'
 cd /opt/flic-a-disc
+git reset --hard origin/main
 git pull origin main
 
 # 3. Install any new Python dependencies
