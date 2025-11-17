@@ -226,6 +226,15 @@ a:hover {
   color: white;
 }
 
+.login-form button.tour {
+  background: linear-gradient(180deg, #ffcc33 0%, #e6a800 100%);
+  border: 2px solid #cc9900;
+  color: #333;
+  font-weight: bold;
+  padding: 5px 15px;
+  cursor: pointer;
+  margin-left: 5px;
+}
 
 /* Record of the Day - Enhanced */
 .record-of-day {

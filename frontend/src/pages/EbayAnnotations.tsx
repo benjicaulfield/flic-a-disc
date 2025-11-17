@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Paginate } from '../hooks/Paginate';
-import { apiFetch } from '../api/client';
+import { apiFetch, mlFetch } from '../api/client';
 
 interface BasicEbayListing {
   id: number;
@@ -122,9 +122,8 @@ const EbayAnnotation = () => {
         label: keeperIds.has(listing.ebay_id)
       }));
 
-      const response = await fetch('https://flic-a-disc.com/ml/ebay/annotated/', {
+      const response = await mlFetch('/ebay/annotated/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ annotations: allListings })
       });
 
@@ -132,8 +131,9 @@ const EbayAnnotation = () => {
         const result = await response.json();
 
         if (result.correct !== undefined && result.total !== undefined) {
-          await fetch('https://flic-a-disc.com/ml/ebay/batch_performance/', {
+          await fetch(`${import.meta.env.VITE_ML_URL}/ebay/batch_performance/`, {
             method: 'POST',
+            credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               correct: result.correct,

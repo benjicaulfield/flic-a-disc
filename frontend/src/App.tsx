@@ -6,6 +6,7 @@ import EbayAnnotation from './pages/EbayAnnotations';
 import LandingPage from './pages/landing/LandingPage';
 import UserDashboard from './pages/UserDashboard';
 import type { User } from './types/interfaces';
+import { apiFetch } from './api/client';
 
 
 function App() {
@@ -18,7 +19,7 @@ function App() {
 
   const checkAuth = async () => {
     try {
-      const response = await fetch('http://localhost:8000/api/auth/me', {
+      const response = await apiFetch('api/auth/me', {
         credentials: 'include',
     });
 
@@ -38,7 +39,7 @@ const handleLogin = (userData: User) => {
 };
 
 const handleLogout = async () => {
-  await fetch('http://localhost:8000/api/auth/logout', {
+  await apiFetch('api/auth/logout', {
     method: 'POST',
     credentials: 'include',
   });
@@ -61,6 +62,7 @@ return (
         <Route path="/training/discogs" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/annotate" element={<EbayAnnotation />} />
+        <Route path="/tour"   element={<UserDashboard onLogout={() => {}} tourMode={true} />} />
       </Routes>
     </Router>
   );

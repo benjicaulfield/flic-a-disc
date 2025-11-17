@@ -10,9 +10,13 @@ export async function apiFetch(path: string, options: RequestInit = {}) {
 }
 
 export async function mlFetch(path: string, options: RequestInit = {}) {
-  const res = await fetch(`${ML_URL}${path}`, {
+  const base = ML_URL.endsWith("/") ? ML_URL : `${ML_URL}/`;
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+
+  const res = await fetch(`${base}${cleanPath}`, {
     credentials: "include",
     ...options,
   });
+
   return res;
 }

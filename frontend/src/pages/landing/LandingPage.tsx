@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Login } from '../../components/Login';
 import type { LandingPageProps, DiscogsRecord } from '../../types/interfaces';
 import './landing.css';
+import { mlFetch } from '../../api/client';
 
 interface Stats {
   discogs: {
@@ -37,7 +38,9 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
   useEffect(() => {
     const fetchRecordOfTheDay = async () => {
       try {
-        const response = await fetch('https://flic-a-disc.com/ml/recommend/rotd/');
+        const response = await mlFetch('recommend/rotd/', {
+          method: "GET",
+        });
         if (!response.ok) {
           throw new Error("failed to fetch documentation");
         }
@@ -52,8 +55,9 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
 
     const fetchStats = async () => {
       try {
-        console.log('Fetching stats from http://localhost:8001/ml/stats/');
-        const response = await fetch('https://flic-a-disc.com/ml/stats/');
+        const response = await mlFetch('stats/', {
+          method: "GET",
+        });
         console.log('Stats response status:', response.status);
         if (!response.ok) {
           throw new Error(`Failed to fetch statistics: ${response.status} ${response.statusText}`);

@@ -1,9 +1,14 @@
 import { useEffect, useState, Fragment } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { DiscogsRecord, MLData, PerformanceStats } from '../types/interfaces';
 import { Paginate } from '../hooks/Paginate';
 import { apiFetch } from "../api/client";
 
-const DiscogsKeepers = () => {
+interface DiscogsKeepersProps {
+  tourMode?: boolean;
+}
+
+const DiscogsKeepers = ({ tourMode = false }: DiscogsKeepersProps) => {
   const [records, setRecords] = useState<DiscogsRecord[]>([]);
   const [labeledCount, setLabeledCount] = useState<number>(0);
   const [totalCount, setTotalCount] = useState<number>(0);
@@ -17,6 +22,8 @@ const DiscogsKeepers = () => {
   const [cumulativeStats, setCumulativeStats] = useState<PerformanceStats | null>(null);
 
   const PAGE_SIZE = 20;
+  const navigate = useNavigate();
+
 
   const {
       currentItems: currentPageRecords,
@@ -243,203 +250,224 @@ const DiscogsKeepers = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-            <h1 className="text-3xl font-bold text-gray-900">
-              {showResults ? 'Prediction Results' : 'Discogs Keepers'}
-            </h1>              
-            <div className="mt-2 sm:mt-0 text-sm text-gray-600">
-              Total labeled: <span className="font-semibold text-blue-600">{labeledCount}/{totalCount}</span>
-            </div>
-          </div>
+    <>
+      {/* --- TOUR MODE NAVIGATION BUTTONS --- */}
+      {tourMode && (
+        <div className="fixed top-4 right-4 flex gap-3 pointer-events-auto z-50">
+          <button
+            className="px-3 py-1 rounded bg-black text-white text-xs"
+            onClick={() => navigate("/dashboard?tour=true")}
+          >
+            LAST
+          </button>
 
-          {showResults && (
-            <div className="grid grid-cols-2 gap-4 mb-4">
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
-                <div className="text-center">
-                  <div className="text-sm text-blue-700 font-medium">This Batch</div>
-                  <div className={`text-4xl font-bold mt-2 ${
-                    (accuracy ?? 0) >= 80 ? 'text-green-600' : (accuracy ?? 0) >= 70 ? 'text-yellow-600' : 'text-red-600'
-                  }`}>
-                    {accuracy ?? 0}%
-                  </div>
-                  <div className="text-sm text-blue-600 mt-1">
-                    {divider} correct out of {currentPageRecords.length} predictions
-                  </div>
-                </div>
+          <button
+            className="px-3 py-1 rounded bg-black text-white text-xs"
+            onClick={() => navigate("/")}
+          >
+            HOME
+          </button>
+        </div>
+      )}
+
+      <div className={`min-h-screen bg-gray-50 py-8 ${tourMode ? "[&_>*]:pointer-events-none" : ""}`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          {/* Header */}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
+              <h1 className="text-3xl font-bold text-gray-900">
+                {showResults ? 'Prediction Results' : 'Discogs Keepers'}
+              </h1>              
+              <div className="mt-2 sm:mt-0 text-sm text-gray-600">
+                Total labeled: <span className="font-semibold text-blue-600">{labeledCount}/{totalCount}</span>
               </div>
-              
-              {cumulativeStats && (
-                <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+            </div>
+
+            {showResults && (
+              <div className="grid grid-cols-2 gap-4 mb-4">
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
                   <div className="text-center">
-                    <div className="text-sm text-purple-700 font-medium">
-                      Rolling Window (Last {cumulativeStats?.total_batches ?? 0} Batches)
-                    </div>
+                    <div className="text-sm text-blue-700 font-medium">This Batch</div>
                     <div className={`text-4xl font-bold mt-2 ${
-                      (cumulativeStats?.cumulative_accuracy ?? 0) >= 80 ? 'text-green-600' : 
-                      (cumulativeStats?.cumulative_accuracy ?? 0) >= 70 ? 'text-yellow-600' : 'text-red-600'
+                      (accuracy ?? 0) >= 80 ? 'text-green-600' : (accuracy ?? 0) >= 70 ? 'text-yellow-600' : 'text-red-600'
                     }`}>
-                      {Math.round(cumulativeStats?.cumulative_accuracy ?? 0)}%
+                      {accuracy ?? 0}%
                     </div>
-                    <div className="text-sm text-purple-600 mt-1">
-                      up to 100 batch rolling average
+                    <div className="text-sm text-blue-600 mt-1">
+                      {divider} correct out of {currentPageRecords.length} predictions
                     </div>
                   </div>
                 </div>
-              )}
-            </div>
-          )}
-
-          {/* Pagination Controls */}
-          <div className="flex items-center justify-between">
-            <button 
-              onClick={previousPage} 
-              disabled={!hasPreviousPage}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ← Previous
-            </button>
-            
-            <span className="text-sm text-gray-700">
-              Page <span className="font-medium">{currentPage + 1}</span> of <span className="font-medium">{totalPages}</span>
-            </span>
-            
-            <button 
-              onClick={nextPage} 
-              disabled={!hasNextPage}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next →
-            </button>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full table-fixed divide-y divide-gray-200 text-xs">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="w-12 px-2 py-2 text-left font-medium text-gray-500 uppercase">✓</th>
-                  <th className="w-32 px-2 py-2 text-left font-medium text-gray-500 uppercase">Artist</th>
-                  <th className="w-32 px-2 py-2 text-left font-medium text-gray-500 uppercase">Title</th>
-                  <th className="w-12 px-2 py-2 text-left font-medium text-gray-500 uppercase">Year</th>
-                  <th className="w-28 px-2 py-2 text-left font-medium text-gray-500 uppercase">Label</th>
-                  <th className="w-14 px-2 py-2 text-center font-medium text-gray-500 uppercase">Want</th>
-                  <th className="w-14 px-2 py-2 text-center font-medium text-gray-500 uppercase">Have</th>
-                  <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Genre</th>
-                  <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Style</th>
-                  <th className="w-20 px-2 py-2 text-right font-medium text-gray-500 uppercase">Sugg</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {displayListings.map((record, index) => {
-                  const dividingLine = showResults && index === divider;
-
-                  return (
-                    <Fragment key={record.id}>
-                      {dividingLine && (
-                        <tr>
-                          <td colSpan={12} className="px-0 py-0">
-                            <div className="bg-red-50 px-4 py-2 border-t-4 border-b border-red-200">
-                              <h2 className="text-sm font-semibold text-red-800">
-                                ✗ Incorrect Predictions
-                              </h2>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    <tr className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                      <td className="px-2 py-2">
-                        <button 
-                          className={`w-6 h-6 rounded border flex items-center justify-center text-xs transition-colors ${
-                            selectedRecords[record.id] 
-                              ? 'bg-green-500 border-green-500 text-white hover:bg-green-600' 
-                              : 'bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50'
-                          }`}
-                          onClick={(event) => toggleLabel(record.id, index, event)}
-                        >
-                          {selectedRecords[record.id] && '✓'}
-                        </button>
-                      </td>
-                      <td className="px-2 py-2 font-medium text-gray-900 truncate" title={record.artist}>
-                        {record.artist}
-                      </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={record.title}>
-                        {record.title}
-                      </td>
-                      <td className="px-2 py-2 text-gray-700">
-                        {record.year}
-                      </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={record.label}>
-                        {record.label}
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <span className="px-1 py-0.5 rounded text-xs bg-blue-100 text-blue-800">
-                          {record.wants}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 text-center">
-                        <span className="px-1 py-0.5 rounded text-xs bg-gray-100 text-gray-800">
-                          {record.haves}
-                        </span>
-                      </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={record.genres.join(', ')}>
-                        {record.genres[0]}
-                        {record.genres.length > 1 && <span className="text-gray-400">+{record.genres.length - 1}</span>}
-                      </td>
-                      <td className="px-2 py-2 text-gray-700 truncate" title={record.styles.join(', ')}>
-                        {record.styles[0]}
-                        {record.styles.length > 1 && <span className="text-gray-400">+{record.styles.length - 1}</span>}
-                      </td>
-                      <td className="px-2 py-2 text-gray-500 text-right truncate">
-                        {record.suggested_price 
-                          ? `$${parseFloat(record.suggested_price.replace(/[^0-9.]/g, '')).toFixed(2)}` 
-                          : '—'}
-                      </td>
-                    </tr>
-                  </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-center">
-        {showResults ? (
-          <button
-            className="px-8 py-3 rounded-lg text-white font-medium bg-blue-600 hover:bg-blue-700 transition-colors"            
-            onClick={loadNextBatch}
-          >
-            Continue to Next Batch
-          </button>
-        ) : (
-          <button
-            className={`px-8 py-3 rounded-lg text-white font-medium transition-colors ${
-              saving 
-                ? 'bg-gray-400 cursor-not-allowed' 
-                : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
-            }`}
-            onClick={savePage}
-            disabled={saving}
-          >
-            {saving ? (
-              <div className="flex items-center">
-                <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
-                Submitting...
+                
+                {cumulativeStats && (
+                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <div className="text-center">
+                      <div className="text-sm text-purple-700 font-medium">
+                        Rolling Window (Last {cumulativeStats?.total_batches ?? 0} Batches)
+                      </div>
+                      <div className={`text-4xl font-bold mt-2 ${
+                        (cumulativeStats?.cumulative_accuracy ?? 0) >= 80 ? 'text-green-600' : 
+                        (cumulativeStats?.cumulative_accuracy ?? 0) >= 70 ? 'text-yellow-600' : 'text-red-600'
+                      }`}>
+                        {Math.round(cumulativeStats?.cumulative_accuracy ?? 0)}%
+                      </div>
+                      <div className="text-sm text-purple-600 mt-1">
+                        up to 100 batch rolling average
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            ) : (
-              'Submit Page'
             )}
-          </button>
-        )}
+
+            {/* Pagination Controls */}
+            <div className="flex items-center justify-between">
+              <button 
+                onClick={previousPage} 
+                disabled={!hasPreviousPage}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                ← Previous
+              </button>
+              
+              <span className="text-sm text-gray-700">
+                Page <span className="font-medium">{currentPage + 1}</span> of <span className="font-medium">{totalPages}</span>
+              </span>
+              
+              <button 
+                onClick={nextPage} 
+                disabled={!hasNextPage}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-lg shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full table-fixed divide-y divide-gray-200 text-xs">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="w-12 px-2 py-2 text-left font-medium text-gray-500 uppercase">✓</th>
+                    <th className="w-32 px-2 py-2 text-left font-medium text-gray-500 uppercase">Artist</th>
+                    <th className="w-32 px-2 py-2 text-left font-medium text-gray-500 uppercase">Title</th>
+                    <th className="w-12 px-2 py-2 text-left font-medium text-gray-500 uppercase">Year</th>
+                    <th className="w-28 px-2 py-2 text-left font-medium text-gray-500 uppercase">Label</th>
+                    <th className="w-14 px-2 py-2 text-center font-medium text-gray-500 uppercase">Want</th>
+                    <th className="w-14 px-2 py-2 text-center font-medium text-gray-500 uppercase">Have</th>
+                    <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Genre</th>
+                    <th className="w-20 px-2 py-2 text-left font-medium text-gray-500 uppercase">Style</th>
+                    <th className="w-20 px-2 py-2 text-right font-medium text-gray-500 uppercase">Sugg</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {displayListings.map((record, index) => {
+                    const dividingLine = showResults && index === divider;
+
+                    return (
+                      <Fragment key={record.id}>
+                        {dividingLine && (
+                          <tr>
+                            <td colSpan={12} className="px-0 py-0">
+                              <div className="bg-red-50 px-4 py-2 border-t-4 border-b border-red-200">
+                                <h2 className="text-sm font-semibold text-red-800">
+                                  ✗ Incorrect Predictions
+                                </h2>
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      <tr className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                        <td className="px-2 py-2">
+                          <button 
+                            className={`w-6 h-6 rounded border flex items-center justify-center text-xs transition-colors ${
+                              selectedRecords[record.id] 
+                                ? 'bg-green-500 border-green-500 text-white hover:bg-green-600' 
+                                : 'bg-white border-gray-300 hover:border-gray-400 hover:bg-gray-50'
+                            }`}
+                            onClick={(event) => toggleLabel(record.id, index, event)}
+                          >
+                            {selectedRecords[record.id] && '✓'}
+                          </button>
+                        </td>
+                        <td className="px-2 py-2 font-medium text-gray-900 truncate" title={record.artist}>
+                          {record.artist}
+                        </td>
+                        <td className="px-2 py-2 text-gray-700 truncate" title={record.title}>
+                          {record.title}
+                        </td>
+                        <td className="px-2 py-2 text-gray-700">
+                          {record.year}
+                        </td>
+                        <td className="px-2 py-2 text-gray-700 truncate" title={record.label}>
+                          {record.label}
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <span className="px-1 py-0.5 rounded text-xs bg-blue-100 text-blue-800">
+                            {record.wants}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-center">
+                          <span className="px-1 py-0.5 rounded text-xs bg-gray-100 text-gray-800">
+                            {record.haves}
+                          </span>
+                        </td>
+                        <td className="px-2 py-2 text-gray-700 truncate" title={record.genres.join(', ')}>
+                          {record.genres[0]}
+                          {record.genres.length > 1 && <span className="text-gray-400">+{record.genres.length - 1}</span>}
+                        </td>
+                        <td className="px-2 py-2 text-gray-700 truncate" title={record.styles.join(', ')}>
+                          {record.styles[0]}
+                          {record.styles.length > 1 && <span className="text-gray-400">+{record.styles.length - 1}</span>}
+                        </td>
+                        <td className="px-2 py-2 text-gray-500 text-right truncate">
+                          {record.suggested_price 
+                            ? `$${parseFloat(record.suggested_price.replace(/[^0-9.]/g, '')).toFixed(2)}` 
+                            : '—'}
+                        </td>
+                      </tr>
+                    </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="mt-6 flex justify-center">
+          {showResults ? (
+            <button
+              className="px-8 py-3 rounded-lg text-white font-medium bg-blue-600 hover:bg-blue-700 transition-colors"            
+              onClick={loadNextBatch}
+            >
+              Continue to Next Batch
+            </button>
+          ) : (
+            <button
+              className={`px-8 py-3 rounded-lg text-white font-medium transition-colors ${
+                saving 
+                  ? 'bg-gray-400 cursor-not-allowed' 
+                  : 'bg-blue-600 hover:bg-blue-700 active:bg-blue-800'
+              }`}
+              onClick={savePage}
+              disabled={saving}
+            >
+              {saving ? (
+                <div className="flex items-center">
+                  <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2"></div>
+                  Submitting...
+                </div>
+              ) : (
+                'Submit Page'
+              )}
+            </button>
+          )}
+        </div>
       </div>
     </div>
-  </div>
+  </>
 )};
 
 export default DiscogsKeepers;

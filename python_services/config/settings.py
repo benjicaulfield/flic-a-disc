@@ -41,6 +41,13 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",  
     "http://localhost:3000", 
+    "https://flic-a-disc.com",
+    "https://www.flic-a-disc.com",
+]
+
+CSRF_TRUSTED_ORIGINS = [
+    "https://flic-a-disc.com",
+    "https://www.flic-a-disc.com",
 ]
 
 CORS_ALLOW_CREDENTIALS = True
