@@ -367,7 +367,6 @@ torchmetrics==1.8.1
 torchvision==0.16.0
 tornado==6.2
 tqdm==4.66.1
--e git+https://github.com/gbraso/tracking_wo_bnw.git@cdba41835e8ff546a7ef9c32308ff4bc29b713c5#egg=tracktor&subdirectory=../../tracking_wo_bnw
 traitlets==5.9.0
 transformers==4.52.0
 trio==0.30.0
