@@ -5,6 +5,8 @@ import { apiFetch, mlFetch } from '../api/client';
 
 interface UserDashboardProps {
   onLogout: () => void;
+  tourMode?: boolean;
+
 }
 
 interface PerformanceData {
@@ -33,7 +35,7 @@ interface TodoItem {
   status: 'in-progress' | 'backlog';
 }
 
-function UserDashboard({ onLogout }: UserDashboardProps) {
+function UserDashboard({ onLogout, tourMode = false }: UserDashboardProps) {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [performanceData, setPerformanceData] = useState<PerformanceData[]>([]);
@@ -47,12 +49,8 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
 
   useEffect(() => {
     loadDashboardData();
-  }, []);
-
-  useEffect(() => {
     loadTodos();
   }, []);
-
 
   const loadTodos = async () => {
     try {
@@ -181,15 +179,15 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     try {
       setLoading(true);
       
-      const perfResponse = await mlFetch('/ml/performance_history/', {
+      const perfResponse = await mlFetch('/performance_history/', {
         credentials: 'include',
       });
       
-      const statsResponse = await mlFetch('/ml/stats/', {
+      const statsResponse = await mlFetch('/stats/', {
         credentials: 'include',
       });
 
-      const ebayStatsResponse = await mlFetch('/ml/ebay/stats/', {
+      const ebayStatsResponse = await mlFetch('/ebay/stats/', {
         credentials: 'include',
       });
       
@@ -252,58 +250,106 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#1e1e1e] text-[#d4d4d4] flex font-mono">
-      {/* Nav Sidebar - 20% */}
-      <aside className="w-[20%] bg-[#252526] border-r border-[#3e3e42] fixed h-full flex flex-col">
-        <nav className="flex-1 p-2 space-y-0.5">
-          {sidebarLinks.map((link) => (
+    <div className={tourMode ? "[&_*]:pointer-events-none" : ""}>
+      <div className="min-h-screen bg-[#1e1e1e] text-[#d4d4d4] flex font-mono">
+        {/* Nav Sidebar - 20% */}
+        <aside className="w-[20%] bg-[#252526] border-r border-[#3e3e42] fixed h-full flex flex-col">
+          <nav className="flex-1 p-2 space-y-0.5">
+            {sidebarLinks.map((link) => (
+              <button
+                key={link.id}
+                onClick={() => handleNavigation(link)}
+                className={`w-full text-left px-3 py-2 rounded text-xs transition-colors ${
+                  activeTab === link.id && !link.path
+                    ? 'bg-[#37373d] text-white'
+                    : 'text-[#cccccc] hover:bg-[#2a2d2e]'
+                }`}
+              >
+                {link.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="p-2 border-t border-[#3e3e42]">
             <button
-              key={link.id}
-              onClick={() => handleNavigation(link)}
-              className={`w-full text-left px-3 py-2 rounded text-xs transition-colors ${
-                activeTab === link.id && !link.path
-                  ? 'bg-[#37373d] text-white'
-                  : 'text-[#cccccc] hover:bg-[#2a2d2e]'
-              }`}
+              onClick={onLogout}
+              className="w-full px-3 py-2 rounded text-xs text-[#cccccc] hover:bg-[#2a2d2e] transition-colors"
             >
-              {link.label}
+              Logout
             </button>
-          ))}
-        </nav>
+          </div>
+        </aside>
 
-        <div className="p-2 border-t border-[#3e3e42]">
-          <button
-            onClick={onLogout}
-            className="w-full px-3 py-2 rounded text-xs text-[#cccccc] hover:bg-[#2a2d2e] transition-colors"
-          >
-            Logout
-          </button>
-        </div>
-      </aside>
+        {/* TODO Column - 40% */}
+        <div className="ml-[20%] w-[40%] bg-[#1e1e1e] border-r border-[#3e3e42] fixed h-full overflow-hidden p-4 flex flex-col">
+          <form onSubmit={handleAddTodo} className="mb-3">
+            <input
+              type="text"
+              value={newTodoText}
+              onChange={(e) => setNewTodoText(e.target.value)}
+              placeholder="Add new task..."
+              className="w-full px-3 py-2 text-xs bg-[#252526] border border-[#3e3e42] rounded text-[#d4d4d4] placeholder-[#6a6a6a] focus:outline-none focus:border-[#007acc]"
+            />
+          </form>
 
-      {/* TODO Column - 40% */}
-      <div className="ml-[20%] w-[40%] bg-[#1e1e1e] border-r border-[#3e3e42] fixed h-full overflow-hidden p-4 flex flex-col">
-        <form onSubmit={handleAddTodo} className="mb-3">
-          <input
-            type="text"
-            value={newTodoText}
-            onChange={(e) => setNewTodoText(e.target.value)}
-            placeholder="Add new task..."
-            className="w-full px-3 py-2 text-xs bg-[#252526] border border-[#3e3e42] rounded text-[#d4d4d4] placeholder-[#6a6a6a] focus:outline-none focus:border-[#007acc]"
-          />
-        </form>
+          <div className="mb-3">
+            <div className="text-xs font-semibold text-[#858585] mb-2">IN PROGRESS</div>
+            <div 
+              className="space-y-1 bg-[#252526] rounded p-2 min-h-[80px]"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, 'in-progress')}
+            >
+              {inProgressTodos.length === 0 ? (
+                <div className="text-xs text-[#6a6a6a] p-2 text-center">Drag items here</div>
+              ) : (
+                inProgressTodos.map(todo => (
+                  <div
+                    key={todo.id}
+                    draggable
+                    onDragStart={(e) => handleDragStart(e, todo.id)}
+                    className="text-xs p-2 bg-[#1e1e1e] rounded border border-[#3e3e42] cursor-move hover:border-[#007acc] flex items-center justify-between group"
+                  >
+                    {editingId === todo.id ? (
+                      <input
+                        type="text"
+                        value={editText}
+                        onChange={(e) => setEditText(e.target.value)}
+                        onBlur={handleSaveEdit}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleSaveEdit();
+                          if (e.key === 'Escape') handleCancelEdit();
+                        }}
+                        autoFocus
+                        className="flex-1 px-2 py-1 text-xs bg-[#252526] border border-[#007acc] rounded text-[#d4d4d4] focus:outline-none"
+                      />
+                    ) : (
+                      <div 
+                        className="text-[#d4d4d4] flex-1 cursor-text" 
+                        onDoubleClick={() => handleStartEdit(todo)}
+                      >
+                        {todo.text}
+                      </div>
+                    )}
+                    <button
+                      onClick={() => handleDeleteTodo(todo.id)}
+                      className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
+                    >
+                      ✓
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
 
-        <div className="mb-3">
-          <div className="text-xs font-semibold text-[#858585] mb-2">IN PROGRESS</div>
-          <div 
-            className="space-y-1 bg-[#252526] rounded p-2 min-h-[80px]"
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, 'in-progress')}
-          >
-            {inProgressTodos.length === 0 ? (
-              <div className="text-xs text-[#6a6a6a] p-2 text-center">Drag items here</div>
-            ) : (
-              inProgressTodos.map(todo => (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <div className="text-xs font-semibold text-[#858585] mb-2">BACKLOG</div>
+            <div 
+              className="flex-1 overflow-y-auto space-y-1 bg-[#252526] rounded p-2"
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, 'backlog')}
+            >
+              {backlogTodos.map(todo => (
                 <div
                   key={todo.id}
                   draggable
@@ -338,165 +384,119 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
                     ✓
                   </button>
                 </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="text-xs font-semibold text-[#858585] mb-2">BACKLOG</div>
-          <div 
-            className="flex-1 overflow-y-auto space-y-1 bg-[#252526] rounded p-2"
-            onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, 'backlog')}
-          >
-            {backlogTodos.map(todo => (
-              <div
-                key={todo.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, todo.id)}
-                className="text-xs p-2 bg-[#1e1e1e] rounded border border-[#3e3e42] cursor-move hover:border-[#007acc] flex items-center justify-between group"
-              >
-                {editingId === todo.id ? (
-                  <input
-                    type="text"
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    onBlur={handleSaveEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveEdit();
-                      if (e.key === 'Escape') handleCancelEdit();
-                    }}
-                    autoFocus
-                    className="flex-1 px-2 py-1 text-xs bg-[#252526] border border-[#007acc] rounded text-[#d4d4d4] focus:outline-none"
-                  />
-                ) : (
-                  <div 
-                    className="text-[#d4d4d4] flex-1 cursor-text" 
-                    onDoubleClick={() => handleStartEdit(todo)}
-                  >
-                    {todo.text}
-                  </div>
-                )}
-                <button
-                  onClick={() => handleDeleteTodo(todo.id)}
-                  className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
-                >
-                  ✓
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Performance Dashboard - 40% */}
-      <main className="ml-[60%] w-[40%] p-6 overflow-y-auto h-screen">
-        {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="animate-spin rounded-full h-12 w-12 border-2 border-[#007acc] border-t-transparent"></div>
-          </div>
-        ) : (
-          <div className="space-y-6">
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
-                <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">Total Records</p>
-                <p className="text-3xl font-semibold text-white">
-                  {stats?.total_records?.toLocaleString() || '0'}
-                </p>
-                <p className="text-xs text-[#858585] mt-2">
-                  {stats?.evaluated_records?.toLocaleString() || '0'} evaluated
-                </p>
-              </div>
-
-              <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
-                <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">Discogs Accuracy</p>
-                <p className={`text-3xl font-semibold ${
-                  (stats?.discogs_accuracy || 0) >= 80 ? 'text-[#4ec9b0]' :
-                  (stats?.discogs_accuracy || 0) >= 70 ? 'text-[#dcdcaa]' : 'text-[#f48771]'
-                }`}>
-                  {stats?.discogs_accuracy?.toFixed(1) || '0'}%
-                </p>
-                <p className="text-xs text-[#858585] mt-2">
-                  Last 100 batches
-                </p>
-              </div>
-
-              <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
-                <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">eBay Accuracy</p>
-                {stats?.ebay_accuracy && stats.ebay_accuracy > 0 ? (
-                  <>
-                    <p className="text-3xl font-semibold text-[#4ec9b0]">
-                      {stats.ebay_accuracy.toFixed(1)}%
-                    </p>
-                    <p className="text-xs text-[#858585] mt-2">
-                      {stats.ebay_evaluated} labeled
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-3xl font-semibold text-[#6a6a6a]">—</p>
-                    <p className="text-xs text-[#858585] mt-2">
-                      {stats?.ebay_evaluated || 0} labeled, no model yet
-                    </p>
-                  </>
-                )}
-              </div>
+              ))}
             </div>
+          </div>
+        </div>
 
-            <div className="space-y-4">
-              <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
-                <h3 className="text-sm font-semibold text-white mb-4">Discogs Accuracy Over Time</h3>
-                <ResponsiveContainer width="100%" height={300}>
-                  <LineChart data={performanceData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#3e3e42" />
-                    <XAxis 
-                      dataKey="batch_number" 
-                      stroke="#858585"
-                      style={{ fontSize: '11px' }}
-                      label={{ value: 'Batch Number', position: 'insideBottom', offset: -5, fill: '#858585', fontSize: 11 }}
-                    />
-                    <YAxis 
-                      stroke="#858585"
-                      style={{ fontSize: '11px' }}
-                      label={{ value: 'Accuracy (%)', angle: -90, position: 'insideLeft', fill: '#858585', fontSize: 11 }}
-                      domain={[0, 100]}
-                    />
-                    <Tooltip 
-                      contentStyle={{ 
-                        backgroundColor: '#1e1e1e', 
-                        border: '1px solid #3e3e42', 
-                        borderRadius: '4px',
-                        fontSize: '11px'
-                      }}
-                      labelStyle={{ color: '#d4d4d4' }}
-                    />
-                    <Line 
-                      type="monotone" 
-                      dataKey="accuracy" 
-                      stroke="#007acc" 
-                      strokeWidth={2}
-                      dot={{ fill: '#007acc', r: 3 }}
-                      name="Accuracy"
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
+        {/* Performance Dashboard - 40% */}
+        <main className="ml-[60%] w-[40%] p-6 overflow-y-auto h-screen">
+          {loading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="animate-spin rounded-full h-12 w-12 border-2 border-[#007acc] border-t-transparent"></div>
+            </div>
+          ) : (
+            <div className="space-y-6">
+
+              <div className="grid grid-cols-3 gap-4">
+                <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
+                  <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">Total Records</p>
+                  <p className="text-3xl font-semibold text-white">
+                    {stats?.total_records?.toLocaleString() || '0'}
+                  </p>
+                  <p className="text-xs text-[#858585] mt-2">
+                    {stats?.evaluated_records?.toLocaleString() || '0'} evaluated
+                  </p>
+                </div>
+
+                <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
+                  <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">Discogs Accuracy</p>
+                  <p className={`text-3xl font-semibold ${
+                    (stats?.discogs_accuracy || 0) >= 80 ? 'text-[#4ec9b0]' :
+                    (stats?.discogs_accuracy || 0) >= 70 ? 'text-[#dcdcaa]' : 'text-[#f48771]'
+                  }`}>
+                    {stats?.discogs_accuracy?.toFixed(1) || '0'}%
+                  </p>
+                  <p className="text-xs text-[#858585] mt-2">
+                    Last 100 batches
+                  </p>
+                </div>
+
+                <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
+                  <p className="text-xs text-[#858585] uppercase tracking-wider mb-2">eBay Accuracy</p>
+                  {stats?.ebay_accuracy && stats.ebay_accuracy > 0 ? (
+                    <>
+                      <p className="text-3xl font-semibold text-[#4ec9b0]">
+                        {stats.ebay_accuracy.toFixed(1)}%
+                      </p>
+                      <p className="text-xs text-[#858585] mt-2">
+                        {stats.ebay_evaluated} labeled
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-3xl font-semibold text-[#6a6a6a]">—</p>
+                      <p className="text-xs text-[#858585] mt-2">
+                        {stats?.ebay_evaluated || 0} labeled, no model yet
+                      </p>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
-                <h3 className="text-sm font-semibold text-white mb-4">eBay Accuracy Over Time</h3>
-                <div className="flex items-center justify-center h-[300px]">
-                  <div className="text-center">
-                    <p className="text-[#6a6a6a] text-sm">No eBay training data yet</p>
-                    <p className="text-[#4a4a4a] text-xs mt-2">Start annotating eBay listings to see performance</p>
+              <div className="space-y-4">
+                <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
+                  <h3 className="text-sm font-semibold text-white mb-4">Discogs Accuracy Over Time</h3>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <LineChart data={performanceData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#3e3e42" />
+                      <XAxis 
+                        dataKey="batch_number" 
+                        stroke="#858585"
+                        style={{ fontSize: '11px' }}
+                        label={{ value: 'Batch Number', position: 'insideBottom', offset: -5, fill: '#858585', fontSize: 11 }}
+                      />
+                      <YAxis 
+                        stroke="#858585"
+                        style={{ fontSize: '11px' }}
+                        label={{ value: 'Accuracy (%)', angle: -90, position: 'insideLeft', fill: '#858585', fontSize: 11 }}
+                        domain={[0, 100]}
+                      />
+                      <Tooltip 
+                        contentStyle={{ 
+                          backgroundColor: '#1e1e1e', 
+                          border: '1px solid #3e3e42', 
+                          borderRadius: '4px',
+                          fontSize: '11px'
+                        }}
+                        labelStyle={{ color: '#d4d4d4' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="accuracy" 
+                        stroke="#007acc" 
+                        strokeWidth={2}
+                        dot={{ fill: '#007acc', r: 3 }}
+                        name="Accuracy"
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div className="bg-[#252526] border border-[#3e3e42] rounded p-5">
+                  <h3 className="text-sm font-semibold text-white mb-4">eBay Accuracy Over Time</h3>
+                  <div className="flex items-center justify-center h-[300px]">
+                    <div className="text-center">
+                      <p className="text-[#6a6a6a] text-sm">No eBay training data yet</p>
+                      <p className="text-[#4a4a4a] text-xs mt-2">Start annotating eBay listings to see performance</p>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
-      </main>
+          )}
+        </main>
+      </div>
     </div>
   );
 }

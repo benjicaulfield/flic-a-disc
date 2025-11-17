@@ -43,10 +43,12 @@ func main() {
 	gin.SetMode(gin.ReleaseMode) // or gin.DebugMode during dev
 	r := gin.Default()
 	r.Use(cors.New(cors.Config{
-		AllowOriginFunc: func(origin string) bool {
-			return origin == "http://localhost:5173" ||
-				origin == "http://localhost:5174" ||
-				origin == "http://localhost:3000"
+		AllowOrigins: []string{
+			"https://flic-a-disc.com",
+			"https://www.flic-a-disc.com",
+			"http://localhost:5173",
+			"http://localhost:5174",
+			"http://localhost:3000",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Authorization"},
@@ -73,7 +75,7 @@ func main() {
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/ebay/unannotated", ebayHandler.GetUnannotatedListings)
-		protected.GET("auth/me", authHandler.Me)
+		protected.GET("/auth/me", authHandler.Me)
 		protected.GET("/todos", h.GetTodos)
 		protected.POST("/todos", h.CreateTodo)
 		protected.PATCH("/todos/:id", h.UpdateTodo)
@@ -84,9 +86,7 @@ func main() {
 	if port == "" {
 		port = "8080"
 	}
-	for _, ri := range r.Routes() {
-		fmt.Println(ri.Method, ri.Path)
-	}
+
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      r,
