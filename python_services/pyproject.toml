@@ -13,4 +13,10 @@ dependencies = [
     "scikit-learn>=1.7.2",
     "numpy>=2.3.3",
     "torch>=2.8.0",
+    "requests>=2.31.0",
+    "python3-discogs-client>=2.3.0",
+    "anthropic>=0.18.0",
+    "gunicorn>=21.2.0",
+    "django-cors-headers>=4.0.0",
+    
 ]
