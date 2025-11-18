@@ -22,18 +22,24 @@ cd /opt/flic-a-disc
 git reset --hard origin/main
 git pull origin main
 
-# 3. Install any new Python dependencies
-cd python_services
-source venv/bin/activate
-pip install -r requirements.txt --quiet
+# 3. Install uv if not present
+if ! command -v uv &> /dev/null; then
+    echo "Installing uv..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh
+    export PATH="$HOME/.cargo/bin:$PATH"
+fi
 
-# 4. Restart services
+# 4. Sync dependencies with uv
+cd python_services
+uv sync
+
+# 5. Restart services
 echo "♻️  Restarting services..."
 sudo systemctl restart flic-django
 sudo systemctl restart flic-go
 sudo systemctl restart nginx
 
-# 5. Check status
+# 6. Check status
 echo "✅ Service status:"
 sudo systemctl status flic-django --no-pager -l | head -5
 sudo systemctl status flic-go --no-pager -l | head -5
