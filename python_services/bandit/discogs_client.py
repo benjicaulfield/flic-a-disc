@@ -1,16 +1,15 @@
 import os
 import json
 import discogs_client
-from discogs_client.exceptions import HTTPError
-from dotenv import load_dotenv
+from decouple import config
+
 from .rate_limiter import RateLimiter, rate_limit_client
 
 LIMITER = RateLimiter(60)
 
-load_dotenv()
 
-consumer_key = os.getenv('DISCOGS_CONSUMER_KEY')
-consumer_secret = os.getenv('DISCOGS_CONSUMER_SECRET')
+consumer_key = config('DISCOGS_CONSUMER_KEY')
+consumer_secret = config('DISCOGS_CONSUMER_SECRET')
 TOKEN_FILE = 'discogs_token.json'
 
 def load_tokens():
