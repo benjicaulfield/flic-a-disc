@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -45,12 +46,25 @@ type RecordResponse struct {
 }
 
 func New(db *gorm.DB, cfg *config.Config) *Handler {
+	mlURL := os.Getenv("ML_SERVICE_URL")
+	if mlURL == "" {
+		mlURL = "http://localhost:8001" // default for local
+	}
+
 	return &Handler{
 		db:              db,
 		config:          cfg,
 		externalService: services.NewExternalService(cfg),
-		mlClient:        ml.NewClient("http://localhost:8001/ml"),
+		mlClient:        ml.NewClient(mlURL + "/ml"),
 	}
+}
+
+func (h *Handler) getMLURL() string {
+	mlURL := os.Getenv("ML_SERVICE_URL")
+	if mlURL == "" {
+		return "http://localhost:8001"
+	}
+	return mlURL
 }
 
 // GET /discogs-keepers/
@@ -318,7 +332,7 @@ func (h *Handler) GetTodos(c *gin.Context) {
 	}
 
 	// Forward to Django with user_id header
-	req, _ := http.NewRequest("GET", "http://localhost:8001/ml/todos/", nil)
+	req, _ := http.NewRequest("GET", h.getMLURL()+"/ml/todos/", nil)
 	req.Header.Set("X-User-ID", fmt.Sprint(userID))
 
 	resp, err := http.DefaultClient.Do(req)
@@ -372,7 +386,7 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 	c.BindJSON(&body)
 
 	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("PATCH", fmt.Sprintf("http://localhost:8001/ml/todos/%s/", todoID), bytes.NewBuffer(jsonBody))
+	req, _ := http.NewRequest("PATCH", fmt.Sprintf("%s/ml/todos/%s/", h.getMLURL(), todoID), bytes.NewBuffer(jsonBody))
 	req.Header.Set("X-User-ID", fmt.Sprint(userID))
 	req.Header.Set("Content-Type", "application/json")
 
@@ -396,7 +410,7 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 	}
 
 	todoID := c.Param("id")
-	req, _ := http.NewRequest("DELETE", fmt.Sprintf("http://localhost:8001/ml/todos/%s/", todoID), nil)
+	req, _ := http.NewRequest("DELETE", fmt.Sprintf("%s/ml/todos/%s/", h.getMLURL(), todoID), nil)
 	req.Header.Set("X-User-ID", fmt.Sprint(userID))
 
 	resp, err := http.DefaultClient.Do(req)
