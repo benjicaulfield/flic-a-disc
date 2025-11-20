@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from decouple import config
 
@@ -13,8 +14,11 @@ SECRET_KEY = "django-insecure-=b+lqgc%w@sp3k3gdq1wd#q*fj)t&#l4bupub%50s5zp+0yw^^
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
-
+if DEBUG:
+    ALLOWED_HOSTS = ['*']  # Allow all in development
+else:
+    ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+    
 INSTALLED_APPS = [
     "django.contrib.admin",
     "django.contrib.auth",
