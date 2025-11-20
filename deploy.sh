@@ -33,6 +33,10 @@ fi
 cd python_services
 uv sync
 
+# 4.5 Rebuild go backend
+cd ../backend
+go build -o flic-go cmd/api/main.go
+
 # 5. Restart services
 echo "♻️  Restarting services..."
 sudo systemctl restart flic-django
