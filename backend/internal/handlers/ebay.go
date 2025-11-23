@@ -36,29 +36,31 @@ func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
 
 func (h *EbayHandler) fetchAndCacheListings() {
 	log.Println("Fetching eBay auctions ending in next 24-48 hours...")
+	log.Println("🚀 fetchAndCacheListings() CALLED")
 
-	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(24)
+	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(48)
 	if err != nil {
 		log.Printf("Failed to fetch listings: %v", err)
 		return
 	}
 
 	now := time.Now()
-	cutoffEnd := now.Add(24 * time.Hour)
+	cutoffStart := now.Add(24 * time.Hour) // 24 hours from now
+	cutoffEnd := now.Add(48 * time.Hour)   // 48 hours from now
 
 	var raw []gin.H
 	for _, item := range allResults {
-		endDate, err := time.Parse(time.RFC3339, item.ItemEndDate)
+		endTime, err := time.Parse(time.RFC3339, item.ItemEndDate)
 		if err != nil {
+			log.Printf("Failed to parse end time for item %s: %v", item.ItemID, err)
 			continue
 		}
-
-		if endDate.Before(cutoffEnd) && endDate.After(now) {
+		if endTime.After(cutoffStart) && endTime.Before(cutoffEnd) {
 			var priceValue string
+
 			if item.Price != nil {
 				priceValue = item.Price.Value
 			}
-
 			currentBid := priceValue
 			if item.CurrentBidPrice != nil {
 				currentBid = item.CurrentBidPrice.Value
@@ -138,6 +140,7 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 
 	requestBody := map[string]interface{}{
 		"listings": listings,
+		"top_n":    500,
 	}
 
 	jsonBody, err := json.Marshal(requestBody)
@@ -152,29 +155,31 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 	defer resp.Body.Close()
 
 	var result struct {
-		Passed []gin.H `json:"passed"`
+		TopListings []gin.H `json:"top_listings"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
 
-	return result.Passed, nil
+	return result.TopListings, nil
 }
 
 func (h *EbayHandler) TriggerFetch(c *gin.Context) {
+	log.Printf("TriggerFetch called from %s", c.Request)
 	h.fetchAndCacheListings()
 	c.JSON(200, gin.H{"message": "Fetch complete"})
 }
 
-func (h *EbayHandler) GetEbayAuctionsPage(c *gin.Context) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
-
-	c.JSON(200, gin.H{
-		"listings": h.listings,
-		"count":    len(h.listings),
-	})
+func (h *EbayHandler) GetListings(c *gin.Context) {
+	var listings []models.EbayListing
+	if err := h.db.Where("evaluated = ?", false).
+		Order("end_date ASC").
+		Find(&listings).Error; err != nil {
+		c.JSON(500, gin.H{"error": "Database error"})
+		return
+	}
+	c.JSON(200, gin.H{"listings": listings})
 }
 
 func (h *EbayHandler) saveToCSV(listings []gin.H) error {
@@ -252,23 +257,12 @@ func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
 			SleeveCondition: sleeveCondition,
 			Genre:           genre,
 			Style:           style,
-			Saved:           true,
 		}
 
 		h.db.Create(&listing)
 	}
 
 	c.JSON(200, gin.H{"message": "Saved", "count": len(req.EbayIDs)})
-}
-
-func (h *EbayHandler) GetSavedListings(c *gin.Context) {
-	var listings []models.EbayListing
-	h.db.Where("saved = ?", true).Order("created_at DESC").Find(&listings)
-
-	c.JSON(200, gin.H{
-		"listings": listings,
-		"count":    len(listings),
-	})
 }
 
 func parseRecordMetadata(item *ebay.ItemSummary) (artist, album, label, format, year, recordCondition, sleeveCondition, genre, style string) {
@@ -373,7 +367,6 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 				"sleeve_condition": sleeveCondition,
 				"genre":            genre,
 				"style":            style,
-				"metadata_fetched": true,
 			})
 
 		enrichedCount++
@@ -429,7 +422,6 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 			"price":       listing.Price,
 			"current_bid": listing.CurrentBid,
 			"end_date":    listing.EndDate,
-			"url":         fmt.Sprintf("https://www.ebay.com/itm/%s", listing.EbayID),
 		})
 	}
 
@@ -462,6 +454,14 @@ func (h *EbayHandler) GetUnannotatedListings(c *gin.Context) {
 		log.Printf("❌ Failed to fetch unannotated listings: %v", result.Error)
 		c.JSON(500, gin.H{"error": "Database error"})
 		return
+	}
+
+	seen := make(map[string]bool)
+	for _, item := range listings {
+		if seen[item.EbayID] {
+			log.Printf("DUPLICATE: %s", item.EbayID)
+		}
+		seen[item.EbayID] = true
 	}
 
 	log.Printf("📊 Returning %d unannotated listings", len(listings))

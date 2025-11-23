@@ -17,6 +17,7 @@ const EbayAnnotation = () => {
   const [listings, setListings] = useState<BasicEbayListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedListings, setSelectedListings] = useState<Record<number, boolean>>({});
   const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
@@ -52,6 +53,23 @@ const EbayAnnotation = () => {
       setError('Failed to load listings');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const refreshFromEbay = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      await apiFetch('/api/ebay/refresh', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      // After refresh completes, reload the listings
+      await loadSimilarListings();
+    } catch (err) {
+      setError('Failed to refresh from eBay');
+    } finally {
+      setRefreshing(false);
     }
   };
   
@@ -124,6 +142,8 @@ const EbayAnnotation = () => {
 
       const response = await mlFetch('/ebay/annotated/', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ annotations: allListings })
       });
 
@@ -184,10 +204,19 @@ const EbayAnnotation = () => {
         {/* Header */}
         <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-            <h1 className="text-3xl font-bold text-slate-700">Similar Records on eBay</h1>
-            <div className="mt-2 sm:mt-0 text-sm text-slate-500">
-              {completedPages} pages completed • {listings.length} similar records found
+            <div>
+              <h1 className="text-3xl font-bold text-slate-700">Similar Records on eBay</h1>
+              <div className="mt-2 text-sm text-slate-500">
+                {completedPages} pages completed • {listings.length} similar records found
+              </div>
             </div>
+            <button
+              onClick={refreshFromEbay}
+              disabled={refreshing}
+              className="mt-4 sm:mt-0 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 text-sm"
+            >
+              {refreshing ? 'Refreshing...' : '🔄 Refresh'}
+            </button>
           </div>
 
           {/* Pagination */}

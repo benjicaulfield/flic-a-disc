@@ -55,6 +55,9 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+	r.OPTIONS("/*path", func(c *gin.Context) {
+		c.Status(200)
+	})
 
 	h := handlers.New(db, cfg)
 	ebayHandler := handlers.NewEbayHandler(cfg.External.EbayAppId, cfg.External.EbayCertId, db)
@@ -71,7 +74,8 @@ func main() {
 		protected.POST("/discogs/labels", h.LabelRecords)
 		protected.GET("/discogs/wanted", h.GetWantedRecords)
 		protected.POST("/discogs/performance", h.RecordBatchPerformance)
-		protected.GET("/ebay/auctions", ebayHandler.TriggerFetch)
+		protected.GET("/ebay/auctions", ebayHandler.GetListings)
+		protected.POST("/ebay/refresh", ebayHandler.TriggerFetch)
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/ebay/unannotated", ebayHandler.GetUnannotatedListings)

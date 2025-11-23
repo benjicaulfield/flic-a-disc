@@ -27,10 +27,12 @@ const EbayAuctions = () => {
   const loadListings = async () => {
     setLoading(true);
     try {
-      const response = await apiFetch('/api/ebay/auctions');
+      console.log('fetching auctions from api/ebay/auctions');
+      const response = await apiFetch('/api/ebay/auctions', {
+        credentials: 'include',
+      });
       const data = await response.json();
       console.log('Keys in first listing:', Object.keys(data.listings[0])); // ← This will show us the exact property names
-
       setListings(data.listings);
     } catch (err) {
       setError('Failed to load auctions');
@@ -58,6 +60,7 @@ const EbayAuctions = () => {
     try {
       await apiFetch('/api/ebay/save', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ebay_ids: Array.from(selectedIds) })
       });
