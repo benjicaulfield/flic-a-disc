@@ -642,8 +642,8 @@ def rebuild_tfidf_vocab(request):
 
 @api_view(['POST'])
 def ebay_title_similarity_filter(request):
-    threshold = 0.75
     listings = request.data.get('listings', [])
+    top_n = request.data.get('top_n', 500)
     if not listings: return Response({'error': 'no listings'}, status=400)
     
     try:
@@ -672,22 +672,16 @@ def ebay_title_similarity_filter(request):
     keeper_similarities = cosine_similarity(ebay_embeddings, keeper_embeddings)
     final_scores = keeper_similarities.max(axis=1)
 
-    results = []
-    for i, score in enumerate(final_scores):
-        if score >= threshold:
-            results.append({
-                'ebay_id': ebay_ids[i],
-                'score': float(score),
-                'title': listings[i].get('title'),
-            })
-
-    results.sort(key=lambda x: x['score'], reverse=True)
-
-    return Response({
-        'passed': results,
-        'total': len(listings),
-        'passed_filter': len(results)
-    })
+    sorted_items = sorted(
+        zip(listings, final_scores),
+        key=lambda x: x[1],
+        reverse=True
+    )[:top_n]
+    
+    top_listings = [item for item, _ in sorted_items]
+    random.shuffle(top_listings)
+    
+    return Response({'top_listings': top_listings})
 
 @api_view(['GET'])
 def process_annotations(request):

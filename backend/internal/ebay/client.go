@@ -59,6 +59,8 @@ func NewClient(appID, certID string) *Client {
 }
 
 func (c *Client) GetAccessToken() error {
+	log.Printf("DEBUG AppID length: %d, first 4 chars: %s", len(c.AppID), c.AppID[:min(4, len(c.AppID))])
+	log.Printf("DEBUG CertID length: %d", len(c.CertID))
 	authURL := "https://api.ebay.com/identity/v1/oauth2/token"
 	creds := fmt.Sprintf("%s:%s", c.AppID, c.CertID)
 	encodedCreds := base64.StdEncoding.EncodeToString([]byte(creds))
@@ -112,6 +114,7 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 	allItems := []ItemSummary{}
 	limit := 200
 	offset := 0
+	maxItems := 10000
 
 	for {
 		searchURL := fmt.Sprintf("%s/buy/browse/v1/item_summary/search", c.BaseURL)
@@ -142,9 +145,6 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 		defer resp.Body.Close()
 
 		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			return nil, err
-		}
 
 		if resp.StatusCode != 200 {
 			return nil, fmt.Errorf("search failed: %s", string(body))
@@ -155,14 +155,36 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 			return nil, fmt.Errorf("failed to decode search response: %w", err)
 		}
 
+		// Append first
 		allItems = append(allItems, sr.ItemSummaries...)
 		log.Printf("Fetched %d items (offset %d, total available: %d)", len(sr.ItemSummaries), offset, sr.Total)
 
-		if offset+limit >= sr.Total || len(sr.ItemSummaries) == 0 {
+		// Stop if we hit our cap
+		if len(allItems) >= maxItems {
+			log.Printf("Reached max cap of %d items — stopping pagination", maxItems)
+			break
+		}
+
+		// Stop if eBay returned empty batch
+		if len(sr.ItemSummaries) == 0 {
+			log.Printf("Empty batch at offset %d — stopping pagination", offset)
+			break
+		}
+
+		// Stop if we've hit the reported total
+		if offset+limit >= sr.Total {
 			break
 		}
 
 		offset += limit
+
+		// Optional: Avoid throttling
+		time.Sleep(200 * time.Millisecond)
+	}
+
+	// Clip if we exceeded by a few
+	if len(allItems) > maxItems {
+		allItems = allItems[:maxItems]
 	}
 
 	return allItems, nil

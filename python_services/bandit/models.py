@@ -53,12 +53,7 @@ class EbayListing(models.Model):
     sleeve_condition = models.CharField(max_length=50, blank=True)
     genre = models.CharField(max_length=100, blank=True)
     style = models.CharField(max_length=100, blank=True)
-    
-    saved = models.BooleanField(default=False)
-    enriched = models.BooleanField(default=False)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
+    keeper = models.BooleanField(default=False)
     
     class Meta:
         db_table = 'ebay_listings'  # Match Go's table name
