@@ -110,7 +110,7 @@ type BatchPerformance struct {
 
 type EbayListing struct {
 	ID           uint   `gorm:"primaryKey"`
-	EbayID       string `gorm:"uniqueIndex;not null"`
+	EbayID       string `gorm:"index:,unique;not null"`
 	EbayTitle    string
 	Price        string
 	Currency     string
@@ -129,9 +129,7 @@ type EbayListing struct {
 	SleeveCondition string
 	Genre           string
 	Style           string
-
-	Saved           bool `gorm:"default:false"`
-	MetadataFetched bool `gorm:"default:false"`
+	Keeper          bool `gorm:"default:false"`
 }
 
 type User struct {
