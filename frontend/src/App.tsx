@@ -4,6 +4,7 @@ import DiscogsKeepers from './pages/DiscogsKeepers';
 import EbayAuctions from './pages/EbayAuctions';
 import EbayAnnotation from './pages/EbayAnnotations';
 import LandingPage from './pages/landing/LandingPage';
+import EbayKeepers from './pages/EbayKeepers';
 import UserDashboard from './pages/UserDashboard';
 import type { User } from './types/interfaces';
 import { apiFetch } from './api/client';
@@ -62,6 +63,7 @@ return (
         <Route path="/training/discogs" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/annotate" element={<EbayAnnotation />} />
+        <Route path="/ebay/keepers" element={<EbayKeepers />} />
         <Route path="/tour"   element={<UserDashboard onLogout={() => {}} tourMode={true} />} />
       </Routes>
     </Router>
