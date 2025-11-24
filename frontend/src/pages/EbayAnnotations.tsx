@@ -135,38 +135,23 @@ const EbayAnnotation = () => {
   const submitAnnotations = async () => {
     try {
       setSubmitting(true);
-      const allListings = currentPageListings.map(listing => ({  
-        ebay_id: listing.ebay_id,
-        label: keeperIds.has(listing.ebay_id)
-      }));
+      const keepers = currentPageListings.filter(listing =>   
+        keeperIds.has(listing.ebay_id)
+      );
 
-      const response = await mlFetch('/ebay/annotated/', {
+      const response = await apiFetch('/api/ebay/annotations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ annotations: allListings })
+        body: JSON.stringify({ keepers })
       });
 
       if (response.ok) {
-        const result = await response.json();
-
-        if (result.correct !== undefined && result.total !== undefined) {
-          await fetch(`${import.meta.env.VITE_ML_URL}/ebay/batch_performance/`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              correct: result.correct,
-              total: result.total
-            })
-          });
-        }
+        setCompletedPages(prev => prev + 1);
+        nextPage();  
+        setKeeperIds(new Set());
+        window.scrollTo(0, 0);
       }
-      
-      setCompletedPages(prev => prev + 1);
-      nextPage();  
-      setKeeperIds(new Set());
-      window.scrollTo(0, 0);
       
     } catch (err) {
       setError('Failed to submit annotations');

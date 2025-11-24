@@ -52,6 +52,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.EbayListing{},
 		&models.User{},
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}
