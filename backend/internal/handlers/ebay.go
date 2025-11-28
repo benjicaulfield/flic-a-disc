@@ -20,10 +20,11 @@ import (
 )
 
 type EbayHandler struct {
-	ebayClient *ebay.Client
-	db         *gorm.DB
-	mu         sync.RWMutex
-	listings   []gin.H
+	ebayClient      *ebay.Client
+	db              *gorm.DB
+	mu              sync.RWMutex
+	cachedListings  []gin.H
+	fetchInProgress bool
 }
 
 func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
@@ -68,7 +69,7 @@ func (h *EbayHandler) fetchAndCacheListings() {
 
 			raw = append(raw, gin.H{
 				"ebay_id":     item.ItemID,
-				"title":       item.Title,
+				"ebay_title":  item.Title,
 				"price":       priceValue,
 				"current_bid": currentBid,
 				"bid_count":   item.BidCount,
@@ -88,50 +89,10 @@ func (h *EbayHandler) fetchAndCacheListings() {
 
 	log.Printf("TF-IDF filter passed %d/%d listings", len(filteredListings), len(raw))
 
-	// ✅ Save only filtered listings to database
-	for _, item := range allResults {
-		// Check if this item passed the filter
-		passed := false
-		for _, filtered := range filteredListings {
-			if filtered["ebay_id"].(string) == item.ItemID {
-				passed = true
-				break
-			}
-		}
-
-		if !passed {
-			continue // Skip listings that didn't pass filter
-		}
-
-		var priceValue string
-		if item.Price != nil {
-			priceValue = item.Price.Value
-		}
-
-		currentBid := priceValue
-		if item.CurrentBidPrice != nil {
-			currentBid = item.CurrentBidPrice.Value
-		}
-
-		endDate, _ := time.Parse(time.RFC3339, item.ItemEndDate)
-		creationDate, _ := time.Parse(time.RFC3339, item.ItemCreationDate)
-
-		dbListing := models.EbayListing{
-			EbayID:       item.ItemID,
-			EbayTitle:    item.Title,
-			Price:        priceValue,
-			CurrentBid:   currentBid,
-			BidCount:     item.BidCount,
-			EndDate:      endDate,
-			CreationDate: creationDate,
-		}
-
-		if err := h.db.Create(&dbListing).Error; err != nil {
-			log.Printf("Failed to save listing %s: %v", item.ItemID, err)
-		}
-	}
-
-	log.Printf("Saved %d filtered listings to database", len(filteredListings))
+	h.mu.Lock()
+	h.cachedListings = filteredListings
+	h.mu.Unlock()
+	log.Printf("✅ Cached %d filtered listings in memory", len(filteredListings))
 }
 
 // ✅ New helper function to call Python filter
@@ -140,7 +101,7 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 
 	requestBody := map[string]interface{}{
 		"listings": listings,
-		"top_n":    500,
+		"top_n":    1000,
 	}
 
 	jsonBody, err := json.Marshal(requestBody)
@@ -166,6 +127,22 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 }
 
 func (h *EbayHandler) TriggerFetch(c *gin.Context) {
+	h.mu.Lock()
+	if h.fetchInProgress {
+		h.mu.Unlock()
+		c.JSON(409, gin.H{"message": "Fetch already in progress"})
+		return
+	}
+
+	h.fetchInProgress = true
+	h.mu.Unlock()
+
+	defer func() {
+		h.mu.Lock()
+		h.fetchInProgress = false
+		h.mu.Unlock()
+	}()
+
 	log.Printf("TriggerFetch called from %s", c.Request)
 	h.fetchAndCacheListings()
 	c.JSON(200, gin.H{"message": "Fetch complete"})
@@ -213,7 +190,7 @@ func (h *EbayHandler) saveToCSV(listings []gin.H) error {
 	return nil
 }
 
-func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
+func (h *EbayHandler) SaveKeepers(c *gin.Context) {
 	var req struct {
 		EbayIDs []string `json:"ebay_ids"`
 	}
@@ -442,47 +419,22 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 }
 
 func (h *EbayHandler) GetUnannotatedListings(c *gin.Context) {
-	var listings []models.EbayListing
+	h.mu.RLock()
+	cached := h.cachedListings
+	h.mu.RUnlock()
 
-	// Get all listings that haven't been evaluated yet
-	result := h.db.Where("evaluated = ?", false).
-		Order("end_date ASC").
-		Limit(2000). // Start with first 2000
-		Find(&listings)
-
-	if result.Error != nil {
-		log.Printf("❌ Failed to fetch unannotated listings: %v", result.Error)
-		c.JSON(500, gin.H{"error": "Database error"})
+	if len(cached) == 0 {
+		c.JSON(200, gin.H{
+			"listings": []gin.H{},
+			"total":    0,
+			"message":  "No listings cached. Click Refresh to fetch from eBay.",
+		})
 		return
 	}
-
-	seen := make(map[string]bool)
-	for _, item := range listings {
-		if seen[item.EbayID] {
-			log.Printf("DUPLICATE: %s", item.EbayID)
-		}
-		seen[item.EbayID] = true
-	}
-
-	log.Printf("📊 Returning %d unannotated listings", len(listings))
-
-	// Map to response format
-	response := []gin.H{}
-	for _, listing := range listings {
-		response = append(response, gin.H{
-			"id":          listing.ID,
-			"ebay_id":     listing.EbayID,
-			"ebay_title":  listing.EbayTitle,
-			"price":       listing.Price,
-			"score":       0.0,
-			"current_bid": listing.CurrentBid,
-			"bid_count":   listing.BidCount,
-			"end_date":    listing.EndDate,
-		})
-	}
+	log.Printf("Returning %d cached listings", len(cached))
 
 	c.JSON(200, gin.H{
-		"listings": response,
-		"total":    len(response),
+		"listings": cached,
+		"total":    len(cached),
 	})
 }
