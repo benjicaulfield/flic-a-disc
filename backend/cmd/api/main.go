@@ -79,6 +79,7 @@ func main() {
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/ebay/unannotated", ebayHandler.GetUnannotatedListings)
+		protected.POST("/ebay/annotations", ebayHandler.SaveKeepers)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.GET("/todos", h.GetTodos)
 		protected.POST("/todos", h.CreateTodo)

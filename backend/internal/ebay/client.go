@@ -159,20 +159,8 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 		allItems = append(allItems, sr.ItemSummaries...)
 		log.Printf("Fetched %d items (offset %d, total available: %d)", len(sr.ItemSummaries), offset, sr.Total)
 
-		// Stop if we hit our cap
-		if len(allItems) >= maxItems {
-			log.Printf("Reached max cap of %d items — stopping pagination", maxItems)
-			break
-		}
-
-		// Stop if eBay returned empty batch
-		if len(sr.ItemSummaries) == 0 {
-			log.Printf("Empty batch at offset %d — stopping pagination", offset)
-			break
-		}
-
 		// Stop if we've hit the reported total
-		if offset+limit >= sr.Total {
+		if offset+limit >= sr.Total || len(sr.ItemSummaries) == 0 {
 			break
 		}
 
