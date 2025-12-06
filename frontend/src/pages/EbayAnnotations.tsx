@@ -161,13 +161,12 @@ const EbayAnnotation = () => {
             })
           });
         }
+
+        setCompletedPages(prev => prev + 1);
+        nextPage();  
+        setKeeperIds(new Set());
+        window.scrollTo(0, 0);
       }
-      
-      setCompletedPages(prev => prev + 1);
-      nextPage();  
-      setKeeperIds(new Set());
-      window.scrollTo(0, 0);
-      
     } catch (err) {
       setError('Failed to submit annotations');
     } finally {
