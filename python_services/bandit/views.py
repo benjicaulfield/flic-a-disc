@@ -658,7 +658,7 @@ def ebay_title_similarity_filter(request):
     ebay_ids = []
 
     for listing in listings:
-        title = listing.get('title', '')
+        title = listing.get('ebay_title', '')
         ebay_id = listing.get('ebay_id', '')
         normalized = normalize_title(title)
         if normalized and ebay_id:
