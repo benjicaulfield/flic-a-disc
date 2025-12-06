@@ -62,7 +62,6 @@ return (
         <Route path="/training/discogs" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/annotate" element={<EbayAnnotation />} />
-        <Route path="/tour"   element={<UserDashboard onLogout={() => {}} tourMode={true} />} />
       </Routes>
     </Router>
   );
