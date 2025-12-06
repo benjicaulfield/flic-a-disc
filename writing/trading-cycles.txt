@@ -1,0 +1,74 @@
+A record exchange mechanism is a systematic procedure to select
+optimal trading cycles for each record exchange problem.
+
+The mechanism relies on an algorithm consisting of several rounds,
+no more than the number of agents. 
+
+Hi = User i's inventory
+Wi = User i's wantlist
+H = u Hi = the union of all users' inventories
+Ai = The set of acceptable records for user i, where Ai is a
+  subset of H and a record r E Ai iff:
+    1: r E Wi (record is on user i's wantlist)
+    2: r meets user i's condition requirements (not in simulation)
+    3: if r is owned by j, then j's max_give value for r > i's min_take value for r
+    
+In each round:
+- each user i points to a subset of records S (subset Ai U Hi) 
+  or no trade where:
+  - records in S intersect Ai = records user wants to receive
+  - records in S intersect Hi = records the user is willing to give
+  - None = user choosing not to participate in this round
+  - each record r E Hi points back to user i (current owner)
+
+A cycle is an ordered list of records and users (r1, u1, r2, u2,...rn, un) such that:
+- record r1 points to user u1 (u1 owns r1)
+- user u1 points to record r2 (u1 wants r2)
+- record r2 points to user u2 (u2 owns r2)
+- user u2 points to record r3 (u2 wants u3)
+- record rn points to user un (un owns rn)
+- user un points to r1 (user un wants r1)
+
+Each record or user can be part of at most one cycle. This is because
+each user points to records from a unique subset (their wants), and
+each record points to a unique user (its owner). 
+
+When a user selects trades to propose, those records get locked and
+can't be part of any simultaneous proposals until the trade is accepted 
+or rejected.
+
+Mechanism:
+- initially all records are available and all users are active. 
+- at each stage of the procedure:
+  - each remaining active user points to their most preferred available
+    records from Ai (their acceptable records) based on their valuations Vi
+  - each remaining record rj points to its current owner
+  - locate all cycles. for each cycle, verify all balance constraints
+    and package limits are satisfied. carry out valid exchanges and remove
+    all records in completed cycles from the active pool. User ui is
+    removed if all records they are trading are removed.
+  - each remaining user points to their top choice(s) among remaining
+    records, and each record points to their owner. Locate all new cycles.
+    Carry out exchanges and remove them.
+  - Repeat previous step until no cycles exist.
+ 
+For each stage:
+- Users taking place in the round are sorted randomly. 
+- For this simulation, we'll use the alphabetical sorting of the users.
+- Each user takes a turn. Each turn has two stages. 
+- First the user looks at trades that have been offered to the user, and either
+accepts, declines, or ignores. 
+  - Accepted trades remove the records from H, and from the user's inventory. 
+    For this simulation, we will store that Record in a list as "gotten"
+  - Declined trades erase that trade from every trade partner
+  - Ignored trades are ignored. There should be a time limit on each trade.
+- Then the user generates new trades. One, two, three hop trades are proposed.
+    - No records can be in different trades. 
+    - The user can select any number of trades to propose that trade. Doing so sends
+      a message to each user in the trade, who will respond in their turn. 
+    - The user can delete a trade from consideration, which can prompt a re-computation
+      of the trade graph. 
+
+Other features:
+- Visualization for each user of their trade graph
+

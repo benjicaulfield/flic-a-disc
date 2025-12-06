@@ -1,0 +1,24 @@
+in long haul:
+- no more scrolling records. no more scrolling feeds. your outlets will
+be writing, and reading, and writing code.
+- tests for everything, start at the bottom up. start at the bottom AND the top?
+- write a big old map for everything
+
+
+
+
+
+
+
+in quick order:
+
+1. get everything running as intended. and deploy.sh running as intended.
+2. hoist trading framework
+3. sketch consignment network
+4. build out rest of the training network
+
+
+
+
+
+
