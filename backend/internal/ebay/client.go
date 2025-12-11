@@ -114,7 +114,6 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 	allItems := []ItemSummary{}
 	limit := 200
 	offset := 0
-	maxItems := 10000
 
 	for {
 		searchURL := fmt.Sprintf("%s/buy/browse/v1/item_summary/search", c.BaseURL)
@@ -159,12 +158,6 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 		allItems = append(allItems, sr.ItemSummaries...)
 		log.Printf("Fetched %d items (offset %d, total available: %d)", len(sr.ItemSummaries), offset, sr.Total)
 
-		// Stop if we hit our cap
-		if len(allItems) >= maxItems {
-			log.Printf("Reached max cap of %d items — stopping pagination", maxItems)
-			break
-		}
-
 		// Stop if eBay returned empty batch
 		if len(sr.ItemSummaries) == 0 {
 			log.Printf("Empty batch at offset %d — stopping pagination", offset)
@@ -180,11 +173,6 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 
 		// Optional: Avoid throttling
 		time.Sleep(200 * time.Millisecond)
-	}
-
-	// Clip if we exceeded by a few
-	if len(allItems) > maxItems {
-		allItems = allItems[:maxItems]
 	}
 
 	return allItems, nil

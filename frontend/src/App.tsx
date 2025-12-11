@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import DiscogsTraining from './pages/DiscogsTraining';
+import DiscogsSellerTrigger from './pages/DiscogsSellerTrigger';
+import DiscogsScraperTrigger from './pages/DiscogsScraperTrigger';
+import DiscogsInventoryView from './pages/DiscogsInventoryView';
 import DiscogsKeepers from './pages/DiscogsKeepers';
+import TradingSimulator from './pages/TradingSimulator';
+import WfmuPlaylistParser from './pages/WfmuPlaylistParser';
 import EbayAuctions from './pages/EbayAuctions';
-import EbayAnnotation from './pages/EbayAnnotations';
+import EbayBuyItNow from './pages/EbayBuyItNow';
+import EbayKeepers from './pages/EbayKeepers';
 import LandingPage from './pages/landing/LandingPage';
 import UserDashboard from './pages/UserDashboard';
 import type { User } from './types/interfaces';
@@ -59,9 +66,20 @@ return (
         <Route path="/dashboard" element={user
               ? <UserDashboard onLogout={handleLogout} />
               : <Navigate to="/" replace /> } />
-        <Route path="/training/discogs" element={user ? <DiscogsKeepers /> : <Navigate to="/" />} />
+        <Route path="/discogs/training" element={user ? <DiscogsTraining /> : <Navigate to="/" />} />
+        <Route path="/discogs/seller-trigger" element={user ? <DiscogsSellerTrigger /> : <Navigate to ="/" />} />
+        <Route path="/discogs/scraper-trigger" element={user ? <DiscogsScraperTrigger /> : <Navigate to ="/" />} />
+        <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to ="/" />} />
+        <Route path="/discogs/inventory-view" element={user ? <DiscogsInventoryView /> : <Navigate to ="/" />} />
+  
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
-        <Route path="/ebay/annotate" element={<EbayAnnotation />} />
+        <Route path="/ebay/buyitnow" element={user ? <EbayBuyItNow /> : <Navigate to="/" />} />
+        <Route path="/ebay/keepers" element={user ? <EbayKeepers /> : <Navigate to="/" />} />
+        <Route path="/wfmu/playlist-parser" element={user ? <WfmuPlaylistParser /> : <Navigate to="/" />} />
+        <Route path="/trading/simulator" element={user ? <TradingSimulator /> : <Navigate to="/" />} />
+
+
+        <Route path="/" />
       </Routes>
     </Router>
   );

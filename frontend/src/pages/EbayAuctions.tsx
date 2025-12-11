@@ -1,74 +1,176 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { apiFetch } from '../api/client';
+import { Paginate } from '../hooks/Paginate';
+import { apiFetch, mlFetch } from '../api/client';
 
-import type { EbayListing } from '../types/interfaces';
-
+interface BasicEbayListing {
+  id: number;
+  ebay_id: string;
+  ebay_title: string;
+  score: number;
+  price?: string;
+  current_bid?: string;
+  end_date: string;
+}
 
 const EbayAuctions = () => {
-  const [listings, setListings] = useState<EbayListing[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [listings, setListings] = useState<BasicEbayListing[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [currentPage, setCurrentPage] = useState(0);
+  const [selectedListings, setSelectedListings] = useState<Record<number, boolean>>({});
+  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
+  const [completedPages, setCompletedPages] = useState<number>(0);
+  const [keeperIds, setKeeperIds] = useState<Set<string>>(new Set());
   const navigate = useNavigate();
 
   const PAGE_SIZE = 40;
-  const startIdx = currentPage * PAGE_SIZE;
-  const endIdx = startIdx + PAGE_SIZE;
-  const currentPageListings = listings.slice(startIdx, endIdx);
-  const totalPages = Math.ceil(listings.length / PAGE_SIZE);
 
-  useEffect(() => {
-    loadListings();
-  }, []);
-
-  const loadListings = async () => {
-    setLoading(true);
+  const {
+    currentItems: currentPageListings,
+    currentPage, totalPages, nextPage,
+    previousPage, hasNextPage, hasPreviousPage
+  } = Paginate(listings, PAGE_SIZE);
+  
+  const getCachedListings = async () => {
     try {
-      console.log('fetching auctions from api/ebay/auctions');
+      setLoading(true);
       const response = await apiFetch('/api/ebay/auctions', {
-        credentials: 'include',
+        credentials: 'include'
       });
-      const data = await response.json();
-      console.log('Keys in first listing:', Object.keys(data.listings[0])); // ← This will show us the exact property names
-      setListings(data.listings);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('📊 DATA:', data.listings.length, data.listings[0]); // ✅ Add this
+        console.log('Received data:', data);
+        console.log('📄 Current page listings:', currentPageListings.length, currentPageListings[0]);
+
+        setListings(data.listings || []);
+      } else {
+        setError('Failed to load listings');
+      }
     } catch (err) {
-      setError('Failed to load auctions');
+      setError('Failed to load listings');
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleSelection = (ebayId: string) => {
-    setSelectedIds(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(ebayId)) {
-        newSet.delete(ebayId);
-      } else {
-        newSet.add(ebayId);
-      }
-      return newSet;
+  const refreshFromEbay = async () => {
+    setRefreshing(true);
+    setError(null);
+    try {
+      await apiFetch('/api/ebay/refresh', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      // After refresh completes, reload the listings
+      await getCachedListings();
+    } catch (err) {
+      setError('Failed to refresh from eBay');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  
+  useEffect(() => {
+    getCachedListings();
+  }, []);
+
+  const toggleLabel = (listingId: number, index: number, event: React.MouseEvent): void => {
+    const listing = currentPageListings[index];
+    if (!listing) return;
+
+    if (event.shiftKey && lastClickedIndex !== null) {
+      const startIndex = Math.min(lastClickedIndex, index);
+      const endIndex = Math.max(lastClickedIndex, index);
+      const shouldSelect = !selectedListings[listingId];
+      
+      setSelectedListings(prev => {
+        const newSelected = { ...prev };
+        for (let i = startIndex; i <= endIndex; i++) {
+          if (currentPageListings[i]) {
+            newSelected[currentPageListings[i].id] = shouldSelect;
+          }
+        }
+        return newSelected;
+      });
+
+      setKeeperIds(prev => {
+        const newSet = new Set(prev);
+        for (let i = startIndex; i <= endIndex; i++) {
+          if (currentPageListings[i]) {
+            if (shouldSelect) {
+              newSet.add(currentPageListings[i].ebay_id);
+            } else {
+              newSet.delete(currentPageListings[i].ebay_id);
+            }
+          }
+        }
+        return newSet;
     });
+    } else {
+      // Regular click: toggle single item
+      const newValue = !selectedListings[listingId];
+      
+      setSelectedListings(prev => ({
+        ...prev,
+        [listingId]: newValue
+      }));
+      
+      setKeeperIds(prev => {
+        const newSet = new Set(prev);
+        if (newValue) {
+          newSet.add(listing.ebay_id);
+        } else {
+          newSet.delete(listing.ebay_id);
+        }
+        return newSet;
+      });
+    }
+  
+    setLastClickedIndex(index);
   };
 
-  const saveSelected = async () => {
-    if (selectedIds.size === 0) return;
-    
-    setSaving(true);
+  const submitAnnotations = async () => {
     try {
-      await apiFetch('/api/ebay/save', {
+      setSubmitting(true);
+      const allListings = currentPageListings.map(listing => ({  
+        ebay_id: listing.ebay_id,
+        label: keeperIds.has(listing.ebay_id)
+      }));
+
+      const response = await mlFetch('/ebay/annotated/', {
         method: 'POST',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ebay_ids: Array.from(selectedIds) })
+        credentials: 'include',
+        body: JSON.stringify({ annotations: allListings })
       });
-      navigate('/ebay/saved');
+
+      if (response.ok) {
+        const result = await response.json();
+
+        if (result.correct !== undefined && result.total !== undefined) {
+          await fetch(`${import.meta.env.VITE_ML_URL}/ebay/batch_performance/`, {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              correct: result.correct,
+              total: result.total
+            })
+          });
+        }
+
+        setCompletedPages(prev => prev + 1);
+        nextPage();  
+        setKeeperIds(new Set());
+        window.scrollTo(0, 0);
+      }
     } catch (err) {
-      setError('Failed to save listings');
+      setError('Failed to submit annotations');
     } finally {
-      setSaving(false);
+      setSubmitting(false);
     }
   };
 
@@ -77,7 +179,7 @@ const EbayAuctions = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-lg text-gray-600">Loading auctions...</div>
+          <div className="text-lg text-gray-600">Recommendations...</div>
         </div>
       </div>
     );
@@ -95,26 +197,32 @@ const EbayAuctions = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
+    <div className="min-h-screen bg-slate-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         
         {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
-          <div className="flex justify-between items-center mb-4">
-            <h1 className="text-3xl font-bold text-gray-900">eBay Auctions Ending Soon</h1>
+        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-slate-700">TOMORROW'S AUCTIONS</h1>
+              <div className="mt-2 text-sm text-slate-500">
+                {completedPages} pages completed • {listings.length} similar records found
+              </div>
+            </div>
             <button
-              onClick={() => navigate('/ebay/saved')}
-              className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+              onClick={refreshFromEbay}
+              disabled={refreshing}
+              className="mt-4 sm:mt-0 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 text-sm"
             >
-              View Saved
+              {refreshing ? 'Refreshing...' : '🔄 Refresh'}
             </button>
           </div>
 
           {/* Pagination */}
           <div className="flex items-center justify-between">
             <button 
-              onClick={() => setCurrentPage(p => p - 1)} 
-              disabled={currentPage === 0}
+              onClick={previousPage} 
+              disabled={!hasPreviousPage}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ← Previous
@@ -122,12 +230,11 @@ const EbayAuctions = () => {
             
             <span className="text-sm text-gray-700">
               Page <span className="font-medium">{currentPage + 1}</span> of <span className="font-medium">{totalPages}</span>
-              {' '}({listings.length} total auctions)
             </span>
             
             <button 
-              onClick={() => setCurrentPage(p => p + 1)} 
-              disabled={currentPage >= totalPages - 1}
+              onClick={nextPage} 
+              disabled={!hasNextPage}
               className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next →
@@ -137,72 +244,69 @@ const EbayAuctions = () => {
 
         {/* Table */}
         <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Save</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Title</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Current Bid</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Bids</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Ends</th>
-                <th className="px-4 py-3 text-left font-medium text-gray-500">Link</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {currentPageListings.map((listing) => (
-                <tr key={listing.ebay_id} className="hover:bg-gray-50">
-                  <td className="px-4 py-3">
-                    <button
-                      onClick={() => toggleSelection(listing.ebay_id.toString())}
-                      className={`w-6 h-6 rounded border flex items-center justify-center ${
-                        selectedIds.has(listing.ebay_id.toString())
-                          ? 'bg-blue-500 border-blue-500 text-white'
-                          : 'border-gray-300'
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead className="bg-slate-100 border-b border-slate-200">    
+                <tr>
+                  <th className="px-2 py-2 text-left font-semibold text-gray-700 border-r border-gray-200">Title</th>
+                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Price</th>
+                  <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20 border-r border-gray-200">Keep</th>
+                </tr>
+              </thead>
+              <tbody>
+                {currentPageListings.map((listing, index) => {
+                  const isKept = keeperIds.has(listing.ebay_id);
+                  return (
+                    <tr 
+                      key={listing.ebay_id} 
+                      className={`border-b border-gray-200 hover:bg-gray-50 ${
+                        isKept ? 'bg-blue-50' : ''
                       }`}
                     >
-                      {selectedIds.has(listing.ebay_id.toString()) && '✓'}
-                    </button>
-                  </td>
-                  <td className="px-4 py-3 max-w-md truncate" title={listing.title}>
-                    {listing.title}
-                  </td>
-                  <td className="px-4 py-3">
-                    ${listing.current_bid || listing.price}
-                  </td>
-                  <td className="px-4 py-3">{listing.bid_count}</td>
-                  <td className="px-4 py-3">
-                    {new Date(listing.end_date).toLocaleDateString()} {new Date(listing.end_date).toLocaleTimeString()}
-                  </td>
-                  <td className="px-4 py-3">
-                    <a href={`https://www.ebay.com/itm/${listing.ebay_id}`} target="_blank" className="text-blue-600 hover:underline">
-                      View
-                    </a>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                      <td className="px-2 py-2 text-gray-700" title={listing.ebay_title}>
+                        {listing.ebay_title || '—'}
+                      </td>
+                      <td className="px-2 py-1.5 border-r border-gray-200">  {/* ✅ Add this */}
+                        ${listing.current_bid || listing.price || '—'}
+                      </td>
+                      <td className="px-2 py-1.5 text-center border-r border-gray-200">
+                        <button
+                          onClick={(event) => toggleLabel(listing.id, index, event)}
+                          className={`px-2 py-0.5 text-xs rounded border ${
+                            isKept
+                              ? 'bg-gray-400 text-white border-gray-400'
+                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
+                          }`}
+                        >
+                          {isKept ? '✓' : 'Keep'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Bottom Actions */}
-        <div className="mt-6 flex justify-between">
+        <div className="mt-6 flex justify-end gap-4">
           <button
-            onClick={() => navigate('/ebay/saved')}
-            className="px-4 py-2 bg-purple-600 text-white rounded hover:bg-purple-700"
+            onClick={() => navigate('/')}
+            className="px-6 py-3 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
           >
-            View Saved Listings
+            Cancel
           </button>
           
           <button
-            onClick={saveSelected}
-            disabled={selectedIds.size === 0 || saving}
-            className="px-8 py-3 bg-blue-600 text-white rounded disabled:bg-gray-400 hover:bg-blue-700"
+            onClick={submitAnnotations}
+            disabled={submitting}
+            className="px-8 py-3 bg-blue-600 text-white rounded disabled:bg-gray-400 hover:bg-blue-700 font-medium"
           >
-            {saving ? 'Saving...' : `Save Selected (${selectedIds.size})`}
+            {submitting ? 'Submitting...' : `Submit Page (${keeperIds.size} keepers)`}
           </button>
         </div>
-      </div>
-    </div>
+      </div>  
+    </div> 
   );
 };
 
