@@ -130,36 +130,48 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 }
 
 func (h *EbayHandler) TriggerFetch(c *gin.Context) {
+	log.Printf("🔵 TriggerFetch: Request received from %s", c.ClientIP())
+
 	h.mu.Lock()
+	log.Printf("🔵 TriggerFetch: Lock acquired, fetchInProgress=%v", h.fetchInProgress)
+
 	if h.fetchInProgress {
 		h.mu.Unlock()
+		log.Printf("🔴 TriggerFetch: REJECTED - fetch already in progress")
 		c.JSON(409, gin.H{"message": "Fetch already in progress"})
 		return
 	}
 
 	h.fetchInProgress = true
+	log.Printf("🟢 TriggerFetch: Set fetchInProgress=true, releasing lock")
 	h.mu.Unlock()
 
-	defer func() {
-		h.mu.Lock()
-		h.fetchInProgress = false
-		h.mu.Unlock()
-	}()
-
-	log.Printf("TriggerFetch called from %s", c.Request)
+	log.Printf("🟢 TriggerFetch: Starting fetchAndCacheListings()")
 	h.fetchAndCacheListings()
+	log.Printf("🟢 TriggerFetch: fetchAndCacheListings() completed")
+
+	h.mu.Lock()
+	h.fetchInProgress = false
+	log.Printf("🟢 TriggerFetch: Set fetchInProgress=false")
+	h.mu.Unlock()
+
+	log.Printf("🟢 TriggerFetch: Sending 200 response")
 	c.JSON(200, gin.H{"message": "Fetch complete"})
+	log.Printf("🟢 TriggerFetch: Response sent, exiting")
 }
 
-func (h *EbayHandler) GetListings(c *gin.Context) {
-	var listings []models.EbayListing
-	if err := h.db.Where("evaluated = ?", false).
-		Order("end_date ASC").
-		Find(&listings).Error; err != nil {
-		c.JSON(500, gin.H{"error": "Database error"})
-		return
+func (h *EbayHandler) GetCachedListings(c *gin.Context) {
+	h.mu.RLock()
+	listings := h.cachedListings
+	h.mu.RUnlock()
+
+	if listings == nil {
+		listings = []gin.H{}
 	}
-	c.JSON(200, gin.H{"listings": listings})
+
+	c.JSON(200, gin.H{
+		"listings": listings,
+	})
 }
 
 func (h *EbayHandler) saveToCSV(listings []gin.H) error {
