@@ -2,16 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Paginate } from '../hooks/Paginate';
 import { apiFetch, mlFetch } from '../api/client';
-
-interface BasicEbayListing {
-  id: number;
-  ebay_id: string;
-  ebay_title: string;
-  score: number;
-  price?: string;
-  current_bid?: string;
-  end_date: string;
-}
+import type { BasicEbayListing } from '../types/interfaces';
 
 const EbayAuctions = () => {
   const [listings, setListings] = useState<BasicEbayListing[]>([]);

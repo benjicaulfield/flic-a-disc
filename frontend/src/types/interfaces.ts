@@ -23,6 +23,16 @@ export interface DiscogsListing {
   record: DiscogsRecord;
 }
 
+export interface BasicEbayListing {
+  id: number;
+  ebay_id: string;
+  ebay_title: string;
+  score: number;
+  price?: string;
+  current_bid?: string;
+  end_date: string;
+}
+
 export interface EbayListing {
   id: number;
   ebay_id: number;

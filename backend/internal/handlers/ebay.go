@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"bytes"
-	"encoding/csv"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -129,35 +127,29 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 	return result.TopListings, nil
 }
 
-func (h *EbayHandler) TriggerFetch(c *gin.Context) {
-	log.Printf("🔵 TriggerFetch: Request received from %s", c.ClientIP())
+func (h *EbayHandler) BuyItNowRecent(c *gin.Context) {
 
+}
+
+func (h *EbayHandler) TriggerFetch(c *gin.Context) {
 	h.mu.Lock()
-	log.Printf("🔵 TriggerFetch: Lock acquired, fetchInProgress=%v", h.fetchInProgress)
 
 	if h.fetchInProgress {
 		h.mu.Unlock()
-		log.Printf("🔴 TriggerFetch: REJECTED - fetch already in progress")
 		c.JSON(409, gin.H{"message": "Fetch already in progress"})
 		return
 	}
 
 	h.fetchInProgress = true
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=true, releasing lock")
 	h.mu.Unlock()
 
-	log.Printf("🟢 TriggerFetch: Starting fetchAndCacheListings()")
 	h.fetchAndCacheListings()
-	log.Printf("🟢 TriggerFetch: fetchAndCacheListings() completed")
 
 	h.mu.Lock()
 	h.fetchInProgress = false
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=false")
 	h.mu.Unlock()
 
-	log.Printf("🟢 TriggerFetch: Sending 200 response")
 	c.JSON(200, gin.H{"message": "Fetch complete"})
-	log.Printf("🟢 TriggerFetch: Response sent, exiting")
 }
 
 func (h *EbayHandler) GetCachedListings(c *gin.Context) {
@@ -172,37 +164,6 @@ func (h *EbayHandler) GetCachedListings(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"listings": listings,
 	})
-}
-
-func (h *EbayHandler) saveToCSV(listings []gin.H) error {
-	filename := time.Now().Format("ebay_auctions_2006-01-02.csv")
-	file, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// Header
-	writer.Write([]string{"ebay_id", "title", "price", "current_bid", "bid_count", "url", "end_date"})
-
-	// Data
-	for _, l := range listings {
-		writer.Write([]string{
-			l["ebay_id"].(string),
-			l["title"].(string),
-			l["price"].(string),
-			l["current_bid"].(string),
-			fmt.Sprintf("%d", l["bid_count"].(int)),
-			l["url"].(string),
-			l["end_date"].(string),
-		})
-	}
-
-	log.Printf("Saved to %s", filename)
-	return nil
 }
 
 func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
