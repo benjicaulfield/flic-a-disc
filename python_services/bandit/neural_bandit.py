@@ -64,7 +64,7 @@ class NeuralContextualBandit(nn.Module):
             return mean, variance
             
     def thompson_sample(self, features, n_samples = 10):
-        self.train()
+        self.eval()
 
         samples = []
         for _ in range(n_samples):
@@ -87,12 +87,14 @@ class NeuralContextualBandit(nn.Module):
 
         mean_pred, variance_pred = self.forward(features)
 
+        pos_weight = (len(labels) - labels.sum()) / (labels.sum() + 1e-6)
         classification_loss = F.binary_cross_entropy(mean_pred, 
-                              labels.float(), reduction='mean')
+                              labels.float(), weight=pos_weight,
+                              reduction='mean')
         
-        variance_reg = torch.mean(torch.abs(variance_pred - 0.1))
 
         triplet_loss = torch.tensor(0.0).to(features.device)
+        
         if triplet_data is not None:
             # Pass full features to encoder - it handles TF-IDF internally
             anchor_emb = self.encoder(triplet_data['anchor'])
@@ -103,17 +105,11 @@ class NeuralContextualBandit(nn.Module):
                 anchor_emb, positive_emb, negative_emb,
                 margin=1.0
             )
-            
-            triplet_loss = self.encoder.triplet_loss(
-                anchor_emb, positive_emb, negative_emb,
-                margin=1.0
-            )
         
         # Combined loss
         total_loss = (
             loss_weights['classification'] * classification_loss +
-            loss_weights['triplet'] * triplet_loss +
-            0.01 * variance_reg
+            loss_weights['triplet'] * triplet_loss
         )
         
         return {
@@ -233,15 +229,9 @@ class NeuralContextualBandit(nn.Module):
                 print(f"   Best val acc: {best_val_acc:.4f} at epoch {epoch - patience}")
                 break
 
-            if best_model_state is not None:
-                self.load_state_dict(best_model_state)
-                print(f"✅ Restored best model with val acc: {best_val_acc:.4f}")
+        if best_model_state is not None:
+            self.load_state_dict(best_model_state)
+            print(f"✅ Restored best model with val acc: {best_val_acc:.4f}")
         
         return history
     
-    def predict(self, records):
-        if self.feature_extractor is None: raise ValueError("FIT FIRST")
-
-        features = self.feature_extractor.extract_batch_features(records)
-        features = torch.FloatTensor(features)
-        return self.predict_with_uncertainty(features)

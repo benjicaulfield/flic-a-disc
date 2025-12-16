@@ -15,7 +15,6 @@ urlpatterns = [
     path('ebay/annotated/', views.ebay_annotate, name='ebay_annotate'),
     path('recommend/rotd/', views.record_of_the_day, name='record-of-the-day'),
     path('ebay_title_similarity_filter/', views.ebay_title_similarity_filter, name='ebay_title_similarity_filter'),
-    path('process_annotations', views.process_annotations, name="process_annotations"),
     path('stats/', views.get_stats, name='stats'),
     path('todos/', views.todos, name='todos'),
     path('todos/<int:todo_id>/', views.todo_detail, name='todo_detail'),

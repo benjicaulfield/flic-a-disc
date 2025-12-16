@@ -30,7 +30,6 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "bandit_model",
-                "managed": False,
             },
         ),
         migrations.CreateModel(

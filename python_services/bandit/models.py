@@ -23,8 +23,8 @@ class Record(models.Model):
         db_table = 'discogs_discogsrecord'
 
 class DiscogsListing(models.Model):
-    seller_id = models.IntegerField()
-    record = models.ForeignKey(Record, on_delete=models.CASCADE)
+    seller_id = models.IntegerField(null=True, blank=True)
+    record = models.ForeignKey(Record, on_delete=models.CASCADE, null=True, blank=True)
     record_price = models.CharField(max_length=255)
     media_condition = models.CharField(max_length=255)
 

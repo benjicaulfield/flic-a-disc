@@ -36,6 +36,4 @@ class EbayApi:
         creds = f"{self.app_id}:{self.cert_id}"
         return base64.b64encode(creds.encode()).decode()
     
-if __name__ == "__main__":
-    api = EbayApi()
-    print(dir(api))
+
