@@ -90,7 +90,7 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 	}
 
 	if len(candidates) == 0 {
-		c.JSON(200, gin.H{"listings": []any{}, "count": 0})
+		c.JSON(200, gin.H{"records": []any{}, "count": 0})
 		return
 	}
 

@@ -684,10 +684,6 @@ def ebay_title_similarity_filter(request):
     return Response({'top_listings': top_listings})
 
 @api_view(['GET'])
-def process_annotations(request):
-    pass
-
-@api_view(['GET'])
 @permission_classes([AllowAny])
 def get_stats(request):
     total_discogs = Record.objects.count()

@@ -3,10 +3,9 @@ import json
 import discogs_client
 from decouple import config
 
-from .rate_limiter import RateLimiter, rate_limit_client
+from .utils.rate_limiter import RateLimiter, rate_limit_client
 
 LIMITER = RateLimiter(60)
-
 
 consumer_key = config('DISCOGS_CONSUMER_KEY')
 consumer_secret = config('DISCOGS_CONSUMER_SECRET')
