@@ -18,5 +18,14 @@ dependencies = [
     "anthropic>=0.18.0",
     "gunicorn>=21.2.0",
     "django-cors-headers>=4.0.0",
-    
+    "pytest-django>=4.11.1",
+]
+[tool.setuptools]
+packages = ["bandit", "config"]
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings_test"
+
+[dependency-groups]
+dev = [
+    "pytest<9",
 ]

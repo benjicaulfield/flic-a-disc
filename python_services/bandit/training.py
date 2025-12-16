@@ -6,7 +6,7 @@ import json
 from django.utils import timezone
 from django.db.models import F
 
-from .models import DiscogsListing, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig
+from .models import Record, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig
 from .features import RecordFeatureExtractor
 from .neural_bandit import NeuralContextualBandit
 from .triplet_generation import generate_triplets, generate_triplets_from_batch
@@ -20,30 +20,27 @@ class BanditTrainer:
     
     def prepare_training_data(self):
         # Query listings where the associated record has been evaluated
-        evaluated_listings = DiscogsListing.objects.filter(record__evaluated=True).select_related('record')
+        evaluated_records = Record.objects.filter(evaluated=True)
         
-        if not evaluated_listings.exists():
+        if not evaluated_records.exists():
             raise ValueError("No evaluated listings found for training")
         
         records = []
         labels = []
         
-        for listing in evaluated_listings:
+        for record in evaluated_records:
             record_dict = {
-                'artist': listing.record.artist,
-                'title': listing.record.title,
-                'label': listing.record.label,
-                'genres': listing.record.genres,
-                'styles': listing.record.styles,
-                'wants': listing.record.wants,
-                'haves': listing.record.haves,
-                'year': listing.record.year,
-                'record_price': listing.record_price,      
-                'media_condition': listing.media_condition,
-                '_is_ebay': False 
+                'artist': record.artist,
+                'title': record.title,
+                'label': record.label,
+                'genres': record.genres,
+                'styles': record.styles,
+                'wants': record.wants,
+                'haves': record.haves,
+                'year': record.year,  
             }
             records.append(record_dict)
-            labels.append(listing.record.wanted)  # The evaluation decision
+            labels.append(record.wanted)  # The evaluation decision
         
         print(f"Training targets sample: {labels[:10]}")
         print(f"Training targets type: {type(labels[0])}")
@@ -153,18 +150,16 @@ class BanditTrainer:
         
         return history
         
-    def listing_to_dict(self, listing):
+    def record_to_dict(self, record):
         return {
-            'artist': listing.record.artist,
-            'title': listing.record.title,
-            'label': listing.record.label,
-            'genres': listing.record.genres,
-            'styles': listing.record.styles,
-            'wants': listing.record.wants,
-            'haves': listing.record.haves,
-            'year': listing.record.year,
-            'record_price': listing.record_price,
-            'media_condition': listing.media_condition
+            'artist': record.artist,
+            'title': record.title,
+            'label': record.label,
+            'genres': record.genres,
+            'styles': record.styles,
+            'wants': record.wants,
+            'haves': record.haves,
+            'year': record.year,
         }
     
     def update_model_online(self, instances):
@@ -175,20 +170,19 @@ class BanditTrainer:
         
         records = []
         labels = []
-        listing_to_record = {}
+        record_ids = []
         print(f"🎯 Starting online update with {len(instances)} instances")
 
         for instance in instances:
             try:
-                listing = DiscogsListing.objects.select_related('record').get(id=instance['id'])
-                
-                record_dict = self.listing_to_dict(listing)
+                record = Record.objects.get(id=instance['id'])
+                record_dict = self.record_to_dict(record)
                 records.append(record_dict)
                 labels.append(instance['actual'])
-                listing_to_record[instance['id']] = listing.record.id
+                record_ids.append(record.id)
                 
-            except DiscogsListing.DoesNotExist:
-                print(f"Warning: Listing {instance['record_id']} not found, skipping")
+            except Record.DoesNotExist:
+                print(f"Warning: Record {instance['record_id']} not found, skipping")
                 continue
         
         if not records:
@@ -213,12 +207,11 @@ class BanditTrainer:
         keeper_history = []
         non_keeper_history = []
 
-        historical_listings = DiscogsListing.objects.filter(
-            record__evaluated=True).select_related('record')[:500]
+        historical_records = Record.objects.filter(evaluated=True)[:500]
         
-        for listing in historical_listings:
-            record_dict = self.listing_to_dict(listing)
-            if listing.record.wanted:
+        for record in historical_records:  
+            record_dict = self.record_to_dict(record)  
+            if record.wanted:  
                 keeper_history.append(record_dict)
             else:
                 non_keeper_history.append(record_dict)
@@ -281,13 +274,13 @@ class BanditTrainer:
             print(f"📈 Training accuracy on this batch: {accuracy*100:.1f}%")        
             
         # Store training instances in database for record keeping
-        for instance in instances:
+        for i, instance in enumerate(instances):  # ✅ Use enumerate to get index
             try:
-                record_id = listing_to_record.get(instance['id'])
-                if not record_id:
+                if i >= len(record_ids):  # ✅ Safety check
                     continue
         
-                predicted_prob = float(instance['predicted'])  # The probability
+                record_id = record_ids[i]  # ✅ Get from our list
+                predicted_prob = float(instance['predicted'])
                 predicted_bool = predicted_prob >= threshold 
                 uncertainty = instance_uncertainties.get(instance['id'])
                             
