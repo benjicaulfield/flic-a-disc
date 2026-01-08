@@ -4,6 +4,7 @@ import DiscogsTraining from './pages/DiscogsTraining';
 import DiscogsSellerTrigger from './pages/DiscogsSellerTrigger';
 import DiscogsScraperTrigger from './pages/DiscogsScraperTrigger';
 import DiscogsInventoryView from './pages/DiscogsInventoryView';
+import DiscogsKnapsack from './pages/DiscogsKnapsack';
 import DiscogsKeepers from './pages/DiscogsKeepers';
 import TradingSimulator from './pages/TradingSimulator';
 import WfmuPlaylistParser from './pages/WfmuPlaylistParser';
@@ -67,11 +68,11 @@ return (
               ? <UserDashboard onLogout={handleLogout} />
               : <Navigate to="/" replace /> } />
         <Route path="/discogs/training" element={user ? <DiscogsTraining /> : <Navigate to="/" />} />
+        <Route path="/discogs/knapsack" element={user ? <DiscogsKnapsack /> : <Navigate to="/" />} />
         <Route path="/discogs/seller-trigger" element={user ? <DiscogsSellerTrigger /> : <Navigate to ="/" />} />
         <Route path="/discogs/scraper-trigger" element={user ? <DiscogsScraperTrigger /> : <Navigate to ="/" />} />
         <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to ="/" />} />
         <Route path="/discogs/inventory-view" element={user ? <DiscogsInventoryView /> : <Navigate to ="/" />} />
-  
         <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
         <Route path="/ebay/buyitnow" element={user ? <EbayBuyItNow /> : <Navigate to="/" />} />
         <Route path="/ebay/keepers" element={user ? <EbayKeepers /> : <Navigate to="/" />} />
