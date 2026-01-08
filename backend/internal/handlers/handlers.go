@@ -422,3 +422,7 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 
 	c.Status(resp.StatusCode)
 }
+
+func (h *Handler) IntegrationHandler(c *gin.Context) {
+	return
+}
