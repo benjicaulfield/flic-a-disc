@@ -103,7 +103,6 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
         <a href="/faq">faq</a> | 
         <a href="/writings">writings</a> | 
         <a href="/youbreakifix">you-break-i-fix</a> | 
-        <a href="/spotify">softdump spotify</a> | 
         <a href="https://https://github.com/benjicaulfield/flic-a-disc/" target="_blank">github</a> | 
         <a href="https://https://www.linkedin.com/in/benjamin-caulfield-265b90159/" target="_blank">linkedIn</a> | 
         <a href="https://bsky.app/profile/benjicaulfield" target="_blank">bsky</a> | 

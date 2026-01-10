@@ -52,20 +52,76 @@ type Record struct {
 }
 
 // Seller represents a record seller
-type Seller struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
-	Name string `json:"name" gorm:"not null"`
+type DiscogsSeller struct {
+	ID          uint    `json:"id" gorm:"primaryKey"`
+	Name        string  `json:"name" gorm:"not null"`
+	ShippingMin float64 `json:"shipping_min"`
+	Currency    string  `json:"currency"`
 }
 
 // Listing represents a record listing by a seller
 type DiscogsListing struct {
-	ID             uint   `json:"id" gorm:"primaryKey"`
-	SellerID       uint   `json:"seller_id" gorm:"not null"`
-	Seller         Seller `json:"seller" gorm:"foreignKey:SellerID"`
-	RecordID       uint   `json:"record_id" gorm:"not null"`
-	Record         Record `json:"record" gorm:"foreignKey:RecordID"`
-	RecordPrice    string `json:"record_price" gorm:"not null"`
-	MediaCondition string `json:"media_condition" gorm:"not null"`
+	ID             uint          `json:"id" gorm:"primaryKey"`
+	SellerID       uint          `json:"seller_id" gorm:"not null"`
+	Seller         DiscogsSeller `json:"seller" gorm:"foreignKey:SellerID"`
+	RecordID       uint          `json:"record_id" gorm:"not null"`
+	Record         Record        `json:"record" gorm:"foreignKey:RecordID"`
+	RecordPrice    string        `json:"record_price" gorm:"not null"`
+	MediaCondition string        `json:"media_condition" gorm:"not null"`
+}
+
+type KnapsackItem struct {
+	DiscogsID      string   `json:"discogs_id"`
+	Artist         string   `json:"artist"`
+	Title          string   `json:"title"`
+	Price          float64  `json:"price"`
+	Currency       string   `json:"currency"`
+	MediaCondition string   `json:"media_condition"`
+	Seller         string   `json:"seller"`
+	Label          string   `json:"label"`
+	Catno          string   `json:"catno"`
+	Wants          int      `json:"wants"`
+	Haves          int      `json:"haves"`
+	SuggestedPrice *float64 `json:"suggested_price"`
+	Genres         []string `json:"genres"`
+	Styles         []string `json:"styles"`
+	Year           *int     `json:"year"`
+	Score          float64  `json:"score"`
+}
+
+type SellerKnapsack struct {
+	Seller        string         `json:"seller"`
+	Knapsack      []KnapsackItem `json:"knapsack"`
+	Contenders    []KnapsackItem `json:"contenders"`
+	TotalSelected int            `json:"total_selected"`
+	TotalCost     float64        `json:"total_cost"`
+	TotalScore    float64        `json:"total_score"`
+}
+
+type KnapsackRequest struct {
+	Budget float64 `json:"budget"`
+}
+
+type KnapsackResponse struct {
+	Knapsacks []SellerKnapsack `json:"knapsacks"`
+	Budget    float64          `json:"budget"`
+}
+
+type KnapsackWeights struct {
+	Embedding float64 `json:"embedding"`
+	PriceDiff float64 `json:"price_diff"`
+	IsWant    float64 `json:"is_want"`
+}
+
+type OptimizationResult struct {
+	SelectedItems []Record `json:"selected_items"`
+	TotalScore    float64  `json:"total_score"`
+	TotalCost     float64  `json:"total_cost"`
+	SellerName    string   `json:"seller_name"`
+}
+
+type ExchangeRateResponse struct {
+	Rates map[string]float64 `json:"rates"`
 }
 
 type Bandit struct {
@@ -156,8 +212,8 @@ func (Record) TableName() string {
 	return "discogs_discogsrecord"
 }
 
-func (Seller) TableName() string {
-	return "discogs_dicogsseller"
+func (DiscogsSeller) TableName() string {
+	return "discogs_discogsseller"
 }
 
 func (DiscogsListing) TableName() string {
