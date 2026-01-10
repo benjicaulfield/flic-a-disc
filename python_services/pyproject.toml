@@ -19,6 +19,7 @@ dependencies = [
     "gunicorn>=21.2.0",
     "django-cors-headers>=4.0.0",
     "pytest-django>=4.11.1",
+    "pytest>=8.4.2",
 ]
 [tool.setuptools]
 packages = ["bandit", "config"]

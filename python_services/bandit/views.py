@@ -16,15 +16,17 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from sklearn.metrics.pairwise import cosine_similarity
-
 from .models import (Record, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, 
-                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance)
+                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance,
+                     KnapsackWeights, DiscogsSeller)
 from .training import BanditTrainer
+from .knapsack import knapsack, score_and_filter_seller_listings
 from .features import RecordFeatureExtractor
 from .bandit_selection import adaptive_batch_selection
 from .enhance_listings import LookupByID
 from .text_utils import create_mock_ebay_title, normalize_title
 from .title_vectorizer import TitleVectorizer
+from .utils.get_user_inventory import get_inventory
 from .discogs_client import authenticate_client
 
 trainer = BanditTrainer()
@@ -880,3 +882,39 @@ def record_ebay_batch_performance(request):
         'rolling_accuracy': rolling_accuracy,
         'total_batches': EbayBatchPerformance.objects.count()
     })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def discogs_knapsack(request):
+    sellers = request.data.get("sellers", [])
+    budget = request.data.get("budget", 0)
+    knapsacks = []
+
+    for seller_data in sellers:
+        seller = seller_data['name']
+        scored_inventory = score_and_filter_seller_listings(seller)
+        selected = knapsack(scored_inventory, budget)
+        selected_ids = {id(item) for item in selected}
+        contenders = [item for item in scored_inventory if id(item) not in selected_ids][:40]
+        for item in selected + contenders:
+            item['score'] = float(item['score'])
+            item['price'] = float(item['price'])
+
+        knapsacks.append({
+            "seller": seller,
+            "knapsack": selected,
+            "contenders": contenders,
+            "total_selected": len(selected),
+            "total_cost": float(sum(item['price'] for item in selected)),
+            "total_score": float(sum(item['score'] for item in selected)),
+        })
+
+    return Response({
+        "knapsacks": knapsacks,
+        "budget": budget
+    })
+
+    
+
+
+

@@ -15,6 +15,7 @@ RATES = get_exchange_rates()
 def save_listings(inventory):
     for item in inventory:
         seller, _ = DiscogsSeller.objects.get_or_create(name=item['seller'])
+        price, currency = item['record_price'].split(', ')
 
         # Create/get Record
         record, _ = Record.objects.get_or_create(
@@ -38,7 +39,8 @@ def save_listings(inventory):
         DiscogsListing.objects.create(
             seller=seller,
             record=record,
-            record_price=f"{item['price']}, {item['currency']}",
+            price=price,
+            currency=currency,
             media_condition=item['media_condition']
         )
 
@@ -103,8 +105,7 @@ def demand_normalizer(inventory):
     return max(demand_scores) if demand_scores else 1
 
 def price_diffs(listing):
-    price = listing['price']
-    currency = listing['currency']
+    price, currency = listing['record_price'].split(', ')
     dollar_price = convert_to_usd(price, currency, RATES)
     sugg_price = listing.get('suggested_price', 0)
     return max(0, (sugg_price - dollar_price))

@@ -22,15 +22,24 @@ class Record(models.Model):
     class Meta:
         db_table = 'discogs_discogsrecord'
 
+class DiscogsSeller(models.Model):
+    name = models.CharField(max_length=255)
+    currency = models.CharField(max_length=8)
+    shipping_min = models.IntegerField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'discogs_discogsseller'
+
 class DiscogsListing(models.Model):
-    seller_id = models.IntegerField(null=True, blank=True)
-    record = models.ForeignKey(Record, on_delete=models.CASCADE, null=True, blank=True)
+    seller = models.ForeignKey(DiscogsSeller, on_delete=models.CASCADE, related_name='listings')
+    record = models.ForeignKey(Record, on_delete=models.CASCADE, related_name='listings')
     record_price = models.CharField(max_length=255)
+    price = models.FloatField(default=0)
+    currency = models.CharField(max_length=255, default="")
     media_condition = models.CharField(max_length=255)
 
     class Meta:
         db_table = 'discogs_discogslisting'
-        managed = False
 
 class EbayListing(models.Model):
     id = models.AutoField(primary_key=True)
@@ -145,3 +154,10 @@ class EbayBatchPerformance(models.Model):
     
     def __str__(self):
         return f"eBay Batch {self.batch_number}: {self.accuracy*100:.1f}% ({self.correct}/{self.total})"
+    
+class KnapsackWeights(models.Model):
+    embedding = models.FloatField(default=0.33)
+    price_diff = models.FloatField(default=0.33)
+    demand = models.FloatField(default=0.34)
+    updated_at = models.DateTimeField(auto_now=True)
+

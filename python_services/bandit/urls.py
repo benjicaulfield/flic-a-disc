@@ -13,6 +13,7 @@ urlpatterns = [
     path('select_batch/', views.select_batch, name="select_batch"),
     path('rebuild_tfidf/', views.rebuild_tfidf_vocab, name='rebuild_tfidf'),
     path('ebay/annotated/', views.ebay_annotate, name='ebay_annotate'),
+    path('discogs/knapsack/', views.discogs_knapsack, name='discogs_knapsack'),
     path('recommend/rotd/', views.record_of_the_day, name='record-of-the-day'),
     path('ebay_title_similarity_filter/', views.ebay_title_similarity_filter, name='ebay_title_similarity_filter'),
     path('stats/', views.get_stats, name='stats'),

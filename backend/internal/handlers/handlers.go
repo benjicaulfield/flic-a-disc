@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -423,6 +424,112 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 	c.Status(resp.StatusCode)
 }
 
-func (h *Handler) IntegrationHandler(c *gin.Context) {
-	return
+func getExchangeRates() (map[string]float64, error) {
+	resp, err := http.Get("https://open.er-api.com/v6/latest/USD")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var rateData models.ExchangeRateResponse
+	if err := json.NewDecoder(resp.Body).Decode(&rateData); err != nil {
+		return nil, err
+	}
+
+	return rateData.Rates, nil
+}
+
+func (h *Handler) KnapsackHandler(c *gin.Context) {
+	fmt.Println("=== Knapsack handler called ===")
+
+	var req models.KnapsackRequest
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		fmt.Println("Error binding JSON:", err)
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	fmt.Println("Request received:", req)
+
+	rates, err := getExchangeRates()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exchange rates"})
+		return
+	}
+	fmt.Println("Rates retrieved")
+
+	var eligibles []models.DiscogsSeller
+
+	fmt.Println("Reading sellers.json...")
+	data, err := os.ReadFile("sellers.json")
+	if err != nil {
+		fmt.Println("File read error:", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sellers file"})
+		return
+	}
+	fmt.Println("Sellers file read successfully")
+
+	var sellers []models.DiscogsSeller
+	if err := json.Unmarshal(data, &sellers); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sellers file"})
+		return
+	}
+
+	for _, seller := range sellers {
+		var dbSeller models.DiscogsSeller
+		result := h.db.Where("name = ?", seller.Name).First(&dbSeller)
+		if result.Error != nil {
+			// Doesn't exist, create new
+			h.db.Create(&models.DiscogsSeller{
+				Name:        seller.Name,
+				ShippingMin: seller.ShippingMin,
+				Currency:    seller.Currency,
+			})
+		}
+		dollars := seller.ShippingMin / rates[seller.Currency]
+		if dollars < req.Budget {
+			eligibles = append(eligibles, seller)
+		}
+	}
+	fmt.Println("Eligible sellers count:", len(eligibles))
+	fmt.Println("Building ML request...")
+	mlReq := map[string]interface{}{
+		"sellers": eligibles,
+		"budget":  req.Budget,
+	}
+	fmt.Println("Marshaling request...")
+
+	body, _ := json.Marshal(mlReq)
+
+	httpReq, err := http.NewRequest("POST", h.getMLURL()+"/ml/discogs/knapsack/", bytes.NewBuffer(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to call ML service"})
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	fmt.Println("Calling ML service...")
+
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		fmt.Println("HTTP request error:", err)
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to call ML service"})
+		return
+	}
+	defer resp.Body.Close()
+	fmt.Println("ML service responded with status:", resp.StatusCode)
+
+	var mlResponse models.KnapsackResponse
+	if err := json.NewDecoder(resp.Body).Decode(&mlResponse); err != nil {
+		fmt.Println("Decode error:", err)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		fmt.Println("Response body:", string(bodyBytes))
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse ML response"})
+		return
+	}
+
+	c.JSON(http.StatusOK, mlResponse)
 }

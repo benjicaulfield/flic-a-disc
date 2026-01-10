@@ -14,13 +14,13 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         budget = options['budget']
-        sellers_path = settings.BASE_DIR / 'sellers.json'
+        sellers = [
+            {"username": "kim_melody", "amount": 250, "currency": "EUR"},
+            {"username": "redmoorvinyl", "amount": 200, "currency": "GBP"}
+        ]
+
         results_path = 'knapsack_results.json'
         
-        # Read sellers file
-        with open(sellers_path, 'r') as f:
-            sellers = json.load(f)
-
         results = []
         processed_sellers = set()
         if os.path.exists(results_path):
