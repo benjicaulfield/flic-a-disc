@@ -124,7 +124,7 @@ def filter_page(page):
 def parse_listing(l):
     try:
         _id = l.release.id
-        _condition = l.condition
+        _media_condition = l.condition
         _price = (l.price.value, l.price.currency)
         _seller = l.seller.username
 
@@ -142,14 +142,20 @@ def parse_listing(l):
         _styles = l.release.styles or []
         _year   = l.release.year
 
-        try:
-            _suggested_price = l.release.price_suggestions.very_good_plus
-        except (AttributeError, TypeError):
+        if hasattr(l.release, 'price_suggestions') and l.release.price_suggestions:
+            try:
+                suggestions = l.release.price_suggestions.fetch()  # or .data
+                print(suggestions)
+                _suggested_price = suggestions.get(_media_condition, {}).get('value')
+                print(_suggested_price)
+            except:
+                _suggested_price = None
+        else:
             _suggested_price = None
 
         return {
             'discogs_id': _id,
-            'media_condition': _condition,
+            'media_condition': _media_condition,
             'record_price': f"{_price[0]}, {_price[1]}",
             'seller': _seller,
             'artist': _artist,

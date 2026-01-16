@@ -513,7 +513,8 @@ def select_record_of_the_day():
             'styles': record.styles or [],
             'wants': record.wants or 0,
             'haves': record.haves or 0,
-            'record_price': listing.record_price or '0',  # From listing, not record
+            'price': listing.price or '0',
+            'currency': listing.currency or '',  # From listing, not record
             'year': record.year,
             'media_condition': listing.media_condition or '',  # From listing
             '_is_ebay': False  # This is Discogs data, not eBay

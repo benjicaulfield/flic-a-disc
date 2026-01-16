@@ -6,5 +6,30 @@
   {
     "seller": "redmoorvinyl",
     "error": "unsupported operand type(s) for /: 'str' and 'float'"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "need at least one array to concatenate"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "need at least one array to concatenate"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "need at least one array to concatenate"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "need at least one array to concatenate"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "float() argument must be a string or a real number, not 'NoneType'"
+  },
+  {
+    "seller": "kim_melody",
+    "error": "float() argument must be a string or a real number, not 'NoneType'",
+    "traceback": "Traceback (most recent call last):\n  File \"/Users/benjamincaulfield/Documents/flic-a-disc/python_services/bandit/management/commands/test_knapsack.py\", line 37, in handle\n    scored_inventory = score_and_filter_seller_listings(seller)\n                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/benjamincaulfield/Documents/flic-a-disc/python_services/bandit/knapsack.py\", line 58, in score_and_filter_seller_listings\n    diff_norm = price_diff_normalizer(inventory)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/benjamincaulfield/Documents/flic-a-disc/python_services/bandit/knapsack.py\", line 113, in price_diff_normalizer\n    diffs = [price_diffs(listing) for listing in inventory]\n            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/benjamincaulfield/Documents/flic-a-disc/python_services/bandit/knapsack.py\", line 113, in <listcomp>\n    diffs = [price_diffs(listing) for listing in inventory]\n             ^^^^^^^^^^^^^^^^^^^^\n  File \"/Users/benjamincaulfield/Documents/flic-a-disc/python_services/bandit/knapsack.py\", line 110, in price_diffs\n    return max(0, (float(sugg_price) - dollar_price))\n                   ^^^^^^^^^^^^^^^^^\nTypeError: float() argument must be a string or a real number, not 'NoneType'\n"
   }
 ]

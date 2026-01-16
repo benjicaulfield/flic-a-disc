@@ -343,11 +343,19 @@ class BanditTrainer:
     
     def load_latest_model(self):
         try:
+            active_models = BanditModelDB.objects.filter(is_active=True)
+            print(f"Active models count: {active_models.count()}")
+            print(f"Active models: {list(active_models.values_list('id', flat=True))}")
+        
             latest_model = BanditModelDB.objects.filter(is_active=True).latest('created_at')
-            
+            print(f"Found model: {latest_model.id}")
+
             model_data = pickle.loads(latest_model.model_weights)
-            
+            print(f"Pickle loaded, keys: {model_data.keys()}")
+
             self.feature_extractor = model_data['feature_extractor']
+            print(f"Feature extractor loaded: {self.feature_extractor}")
+
             
             vocab_sizes = model_data['vocab_sizes']
             embedding_dims = model_data['embedding_dims']
@@ -383,6 +391,6 @@ class BanditTrainer:
             print(f"Loaded model version {latest_model.version}")
             return True
             
-        except BanditModelDB.DoesNotExist:
-            print("No trained model found in database")
+        except Exception as e:
+            print(f"Error loading model: {type(e).__name__}: {e}")
             return False
