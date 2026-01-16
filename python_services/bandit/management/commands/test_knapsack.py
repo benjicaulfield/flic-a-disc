@@ -1,4 +1,5 @@
 import os
+import traceback
 from pathlib import Path
 import json
 from django.conf import settings
@@ -16,26 +17,19 @@ class Command(BaseCommand):
         budget = options['budget']
         sellers = [
             {"username": "kim_melody", "amount": 250, "currency": "EUR"},
-            {"username": "redmoorvinyl", "amount": 200, "currency": "GBP"}
         ]
 
         results_path = 'knapsack_results.json'
         
         results = []
-        processed_sellers = set()
         if os.path.exists(results_path):
             with open(results_path, 'r') as f:
                 results = json.load(f)
-                processed_sellers = {r['seller'] for r in results}
                 self.stdout.write(f"Loaded {len(results)} existing results")
 
 
         for seller_data in sellers:
             seller = seller_data['username']
-
-            if seller in processed_sellers:
-                self.stdout.write(f"Skipping {seller}, already processed")
-                continue
 
             self.stdout.write(f"Processing {seller}...")
             
@@ -65,9 +59,10 @@ class Command(BaseCommand):
                 ))
                 
             except Exception as e:
+                tb = traceback.format_exc()
                 self.stdout.write(self.style.ERROR(f"  ✗ Error: {e}"))
-                results.append({"seller": seller, "error": str(e)})
-
+                self.stdout.write(tb)  # Print to console
+                results.append({"seller": seller, "error": str(e), "traceback": tb})
             # Save results
             with open('knapsack_results.json', 'w') as f:
                 json.dump(results, f, indent=2)

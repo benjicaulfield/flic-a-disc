@@ -17,7 +17,6 @@ def save_listings(inventory):
         seller, _ = DiscogsSeller.objects.get_or_create(name=item['seller'])
         price, currency = item['record_price'].split(', ')
 
-        # Create/get Record
         record, _ = Record.objects.get_or_create(
             discogs_id=item['discogs_id'],
             defaults={
@@ -47,8 +46,8 @@ def save_listings(inventory):
 
 def score_and_filter_seller_listings(seller):
     trainer = BanditTrainer()
-    if not trainer.model:
-        trainer.load_latest_model()
+    
+    trainer.load_latest_model()
     
     weights = KnapsackWeights.objects.first()
     
@@ -108,7 +107,7 @@ def price_diffs(listing):
     price, currency = listing['record_price'].split(', ')
     dollar_price = convert_to_usd(price, currency, RATES)
     sugg_price = listing.get('suggested_price', 0)
-    return max(0, (sugg_price - dollar_price))
+    return max(0, (float(sugg_price) - dollar_price))
 
 def price_diff_normalizer(inventory):
     diffs = [price_diffs(listing) for listing in inventory]

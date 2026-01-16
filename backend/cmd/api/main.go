@@ -76,7 +76,7 @@ func main() {
 		protected.POST("/discogs/performance", h.RecordBatchPerformance)
 		protected.POST("/discogs/knapsack", h.KnapsackHandler)
 		protected.GET("/ebay/auctions", ebayHandler.GetCachedListings)
-		protected.POST("/ebay/refresh", ebayHandler.TriggerFetch)
+		protected.POST("/ebay/refresh_auctions", ebayHandler.TriggerFetchAuctions)
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/auth/me", authHandler.Me)

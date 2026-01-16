@@ -6,4 +6,4 @@ def get_exchange_rates():
     return data['rates']
 
 def convert_to_usd(amount, currency, rates):
-    return amount / rates[currency]
+    return float(amount) / rates[currency]

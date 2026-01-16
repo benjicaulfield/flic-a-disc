@@ -1,178 +1,33 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Paginate } from '../hooks/Paginate';
-import { apiFetch, mlFetch } from '../api/client';
-
-interface BasicEbayListing {
-  id: number;
-  ebay_id: string;
-  ebay_title: string;
-  score: number;
-  price?: string;
-  current_bid?: string;
-  end_date: string;
-}
+import { useEbayListings } from '../hooks/useEbayListings';
 
 const EbayAuctions = () => {
-  const [listings, setListings] = useState<BasicEbayListing[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedListings, setSelectedListings] = useState<Record<number, boolean>>({});
-  const [lastClickedIndex, setLastClickedIndex] = useState<number | null>(null);
-  const [completedPages, setCompletedPages] = useState<number>(0);
-  const [keeperIds, setKeeperIds] = useState<Set<string>>(new Set());
-  const navigate = useNavigate();
-
-  const PAGE_SIZE = 40;
-
   const {
-    currentItems: currentPageListings,
-    currentPage, totalPages, nextPage,
-    previousPage, hasNextPage, hasPreviousPage
-  } = Paginate(listings, PAGE_SIZE);
-  
-  const getCachedListings = async () => {
-    try {
-      setLoading(true);
-      const response = await apiFetch('/api/ebay/auctions', {
-        credentials: 'include'
-      });
-      if (response.ok) {
-        const data = await response.json();
-        console.log('📊 DATA:', data.listings.length, data.listings[0]); // ✅ Add this
-        console.log('Received data:', data);
-        console.log('📄 Current page listings:', currentPageListings.length, currentPageListings[0]);
+    listings,
+    loading,
+    submitting,
+    refreshing,
+    error,
+    keeperIds,
+    completedPages,
+    getCachedListings,
+    refreshListings,
+    toggleLabel,
+    submitAnnotations
+  } = useEbayListings('/api/ebay/auctions', '/api/ebay/refresh_auctions');
 
-        setListings(data.listings || []);
-      } else {
-        setError('Failed to load listings');
-      }
-    } catch (err) {
-      setError('Failed to load listings');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { 
+      currentItems: currentPageListings,
+      currentPage,
+      totalPages,
+      nextPage,
+      previousPage,
+      hasNextPage,
+      hasPreviousPage
+    } = Paginate(listings, 40);
 
-  const refreshFromEbay = async () => {
-    setRefreshing(true);
-    setError(null);
-    try {
-      await apiFetch('/api/ebay/refresh', {
-        method: 'POST',
-        credentials: 'include'
-      });
-      // After refresh completes, reload the listings
-      await getCachedListings();
-    } catch (err) {
-      setError('Failed to refresh from eBay');
-    } finally {
-      setRefreshing(false);
-    }
-  };
-  
-  useEffect(() => {
-    getCachedListings();
-  }, []);
-
-  const toggleLabel = (listingId: number, index: number, event: React.MouseEvent): void => {
-    const listing = currentPageListings[index];
-    if (!listing) return;
-
-    if (event.shiftKey && lastClickedIndex !== null) {
-      const startIndex = Math.min(lastClickedIndex, index);
-      const endIndex = Math.max(lastClickedIndex, index);
-      const shouldSelect = !selectedListings[listingId];
-      
-      setSelectedListings(prev => {
-        const newSelected = { ...prev };
-        for (let i = startIndex; i <= endIndex; i++) {
-          if (currentPageListings[i]) {
-            newSelected[currentPageListings[i].id] = shouldSelect;
-          }
-        }
-        return newSelected;
-      });
-
-      setKeeperIds(prev => {
-        const newSet = new Set(prev);
-        for (let i = startIndex; i <= endIndex; i++) {
-          if (currentPageListings[i]) {
-            if (shouldSelect) {
-              newSet.add(currentPageListings[i].ebay_id);
-            } else {
-              newSet.delete(currentPageListings[i].ebay_id);
-            }
-          }
-        }
-        return newSet;
-    });
-    } else {
-      // Regular click: toggle single item
-      const newValue = !selectedListings[listingId];
-      
-      setSelectedListings(prev => ({
-        ...prev,
-        [listingId]: newValue
-      }));
-      
-      setKeeperIds(prev => {
-        const newSet = new Set(prev);
-        if (newValue) {
-          newSet.add(listing.ebay_id);
-        } else {
-          newSet.delete(listing.ebay_id);
-        }
-        return newSet;
-      });
-    }
-  
-    setLastClickedIndex(index);
-  };
-
-  const submitAnnotations = async () => {
-    try {
-      setSubmitting(true);
-      const allListings = currentPageListings.map(listing => ({  
-        ebay_id: listing.ebay_id,
-        label: keeperIds.has(listing.ebay_id)
-      }));
-
-      const response = await mlFetch('/ebay/annotated/', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ annotations: allListings })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-
-        if (result.correct !== undefined && result.total !== undefined) {
-          await fetch(`${import.meta.env.VITE_ML_URL}/ebay/batch_performance/`, {
-            method: 'POST',
-            credentials: 'include',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              correct: result.correct,
-              total: result.total
-            })
-          });
-        }
-
-        setCompletedPages(prev => prev + 1);
-        nextPage();  
-        setKeeperIds(new Set());
-        window.scrollTo(0, 0);
-      }
-    } catch (err) {
-      setError('Failed to submit annotations');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const navigate = useNavigate();
 
   if (loading) {
     return (
@@ -210,7 +65,7 @@ const EbayAuctions = () => {
               </div>
             </div>
             <button
-              onClick={refreshFromEbay}
+              onClick={refreshListings}
               disabled={refreshing}
               className="mt-4 sm:mt-0 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 text-sm"
             >
