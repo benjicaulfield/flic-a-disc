@@ -31,9 +31,13 @@ export interface BasicEbayListing {
 }
 
 export interface BasicEbayAuction {
-  listing: BasicEbayListing;
+  id: number;
+  ebay_id: string;
+  ebay_title: string;
   current_bid: string;
-  end_time: string;
+  end_date: string;
+  keeper: boolean;
+  evaluated: boolean;
 }
 
 export interface BasicEbayBuyItNow {

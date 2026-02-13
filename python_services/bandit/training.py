@@ -207,7 +207,7 @@ class BanditTrainer:
         keeper_history = []
         non_keeper_history = []
 
-        historical_records = Record.objects.filter(evaluated=True)[:500]
+        historical_records = Record.objects.filter(evaluated=True)
         
         for record in historical_records:  
             record_dict = self.record_to_dict(record)  
@@ -220,7 +220,9 @@ class BanditTrainer:
             current_batch=records,
             current_labels=labels,
             keeper_history=keeper_history,
-            non_keeper_history=non_keeper_history
+            non_keeper_history=non_keeper_history,
+            num_triplets_per_keeper=10,
+            hard_mining_ratio=0.5
         )
 
         # Extract triplet features if available

@@ -2,7 +2,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
 class TitleVectorizer:
-    def __init__(self, max_features=100):
+    def __init__(self, max_features=1000):
         self.vectorizer = TfidfVectorizer(
             max_features=max_features,
             lowercase=False,

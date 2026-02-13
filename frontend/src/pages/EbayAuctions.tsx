@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Paginate } from '../hooks/Paginate';
 import { useEbayListings } from '../hooks/useEbayListings';
+import type { BasicEbayAuction } from '../types/interfaces';
 
 const EbayAuctions = () => {
   const {
@@ -15,7 +17,7 @@ const EbayAuctions = () => {
     refreshListings,
     toggleLabel,
     submitAnnotations
-  } = useEbayListings('/api/ebay/auctions', '/api/ebay/refresh_auctions');
+  } = useEbayListings<BasicEbayAuction>('/api/ebay/auctions', '/api/ebay/refresh_auctions');
 
   const { 
       currentItems: currentPageListings,
@@ -25,16 +27,20 @@ const EbayAuctions = () => {
       previousPage,
       hasNextPage,
       hasPreviousPage
-    } = Paginate(listings, 40);
+    } = Paginate<BasicEbayAuction>(listings, 40);
 
   const navigate = useNavigate();
+
+  useEffect(() => {
+    getCachedListings();
+  }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-lg text-gray-600">Recommendations...</div>
+          <div className="text-lg text-gray-600">Loading...</div>
         </div>
       </div>
     );
@@ -109,24 +115,36 @@ const EbayAuctions = () => {
                 </tr>
               </thead>
               <tbody>
-                {currentPageListings.map((listing, index) => {
-                  const isKept = keeperIds.has(listing.ebay_id);
+                {currentPageListings.map((auction, index) => {
+                  if (!auction) return null;
+
+                  const isKept = keeperIds.has(auction.ebay_id);
+
                   return (
-                    <tr 
-                      key={listing.ebay_id} 
+                    <tr
+                      key={auction.ebay_id}
                       className={`border-b border-gray-200 hover:bg-gray-50 ${
                         isKept ? 'bg-blue-50' : ''
                       }`}
                     >
-                      <td className="px-2 py-2 text-gray-700" title={listing.ebay_title}>
-                        {listing.ebay_title || '—'}
+                      <td className="px-2 py-2 text-gray-700" title={auction.ebay_title}>
+                        {auction.ebay_title || '—'}
                       </td>
-                      <td className="px-2 py-1.5 border-r border-gray-200">  {/* ✅ Add this */}
-                        ${listing.current_bid || listing.price || '—'}
+
+                      <td className="px-2 py-1.5 border-r border-gray-200">
+                        ${auction.current_bid || '0.00'}
                       </td>
+
                       <td className="px-2 py-1.5 text-center border-r border-gray-200">
                         <button
-                          onClick={(event) => toggleLabel(listing.id, index, event)}
+                          onClick={(event) =>
+                            toggleLabel(
+                              auction.id,
+                              index,
+                              event,
+                              currentPageListings
+                            )
+                          }
                           className={`px-2 py-0.5 text-xs rounded border ${
                             isKept
                               ? 'bg-gray-400 text-white border-gray-400'
@@ -140,6 +158,7 @@ const EbayAuctions = () => {
                   );
                 })}
               </tbody>
+
             </table>
           </div>
         </div>
@@ -153,7 +172,9 @@ const EbayAuctions = () => {
           </button>
           
           <button
-            onClick={submitAnnotations}
+            onClick={() => {
+              submitAnnotations(currentPageListings, nextPage);
+            }}
             disabled={submitting}
             className="px-8 py-3 bg-blue-600 text-white rounded disabled:bg-gray-400 hover:bg-blue-700 font-medium"
           >

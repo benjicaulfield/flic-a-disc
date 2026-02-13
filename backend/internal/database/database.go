@@ -51,7 +51,11 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.BatchPerformance{},
 		&models.EbayListing{},
 		&models.User{},
+		&models.RankingSession{},
+		&models.RankingBatch{},
+		&models.KnapsackItem{},
 	)
+
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)
 	}

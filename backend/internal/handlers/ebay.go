@@ -2,9 +2,7 @@ package handlers
 
 import (
 	"bytes"
-	"encoding/csv"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -69,7 +67,6 @@ func (h *EbayHandler) fetchAndCacheAuctions() {
 				"ebay_title":  item.Title,
 				"price":       priceValue,
 				"current_bid": currentBid,
-				"bid_count":   item.BidCount,
 				"url":         item.ItemWebURL,
 				"end_date":    item.ItemEndDate,
 			})
@@ -85,6 +82,29 @@ func (h *EbayHandler) fetchAndCacheAuctions() {
 	}
 
 	log.Printf("TF-IDF filter passed %d/%d listings", len(filteredListings), len(raw))
+
+	for _, listing := range filteredListings {
+		endDateStr, ok := listing["end_date"].(string)
+		if !ok || endDateStr == "" {
+			log.Printf("missing or invalid end_date: %#v", listing["end_date"])
+			continue
+		}
+
+		endDate, err := time.Parse(time.RFC3339, endDateStr)
+		if err != nil {
+			log.Printf("bad end_date format: %s", endDateStr)
+			continue
+		}
+
+		h.db.FirstOrCreate(&models.EbayListing{}, models.EbayListing{
+			EbayID:     listing["ebay_id"].(string),
+			EbayTitle:  listing["ebay_title"].(string),
+			Price:      listing["price"].(string),
+			CurrentBid: listing["current_bid"].(string),
+			EndDate:    endDate,
+			Evaluated:  false,
+		})
+	}
 
 	h.mu.Lock()
 	h.cachedListings = filteredListings
@@ -156,89 +176,6 @@ func (h *EbayHandler) GetCachedListings(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"listings": listings,
 	})
-}
-
-func (h *EbayHandler) saveToCSV(listings []gin.H) error {
-	filename := time.Now().Format("ebay_auctions_2006-01-02.csv")
-	file, err := os.Create(filename)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	writer := csv.NewWriter(file)
-	defer writer.Flush()
-
-	// Header
-	writer.Write([]string{"ebay_id", "title", "price", "current_bid", "bid_count", "url", "end_date"})
-
-	// Data
-	for _, l := range listings {
-		writer.Write([]string{
-			l["ebay_id"].(string),
-			l["title"].(string),
-			l["price"].(string),
-			l["current_bid"].(string),
-			fmt.Sprintf("%d", l["bid_count"].(int)),
-			l["url"].(string),
-			l["end_date"].(string),
-		})
-	}
-
-	log.Printf("Saved to %s", filename)
-	return nil
-}
-
-func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
-	var req struct {
-		EbayIDs []string `json:"ebay_ids"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(400, gin.H{"error": "Invalid request"})
-		return
-	}
-
-	for _, ebayID := range req.EbayIDs {
-		item, err := h.ebayClient.LookupByItemID(ebayID)
-		if err != nil {
-			log.Printf("Failed to lookup %s: %v", ebayID, err)
-			continue
-		}
-
-		artist, album, label, format, year, recordCondition, sleeveCondition, genre, style := parseRecordMetadata(item)
-
-		endDate, _ := time.Parse(time.RFC3339, item.ItemEndDate)
-		creationDate, _ := time.Parse(time.RFC3339, item.ItemCreationDate)
-
-		currentBid := item.Price.Value
-		if item.CurrentBidPrice != nil {
-			currentBid = item.CurrentBidPrice.Value
-		}
-
-		listing := models.EbayListing{
-			EbayID:          ebayID,
-			EbayTitle:       item.Title,
-			Price:           item.Price.Value,
-			CurrentBid:      currentBid,
-			BidCount:        item.BidCount,
-			EndDate:         endDate,
-			CreationDate:    creationDate,
-			Artist:          artist,
-			Album:           album,
-			Label:           label,
-			Format:          format,
-			Year:            year,
-			RecordCondition: recordCondition,
-			SleeveCondition: sleeveCondition,
-			Genre:           genre,
-			Style:           style,
-		}
-
-		h.db.Create(&listing)
-	}
-
-	c.JSON(200, gin.H{"message": "Saved", "count": len(req.EbayIDs)})
 }
 
 func parseRecordMetadata(item *ebay.ItemSummary) (artist, album, label, format, year, recordCondition, sleeveCondition, genre, style string) {

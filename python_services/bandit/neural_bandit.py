@@ -81,8 +81,8 @@ class NeuralContextualBandit(nn.Module):
     def combined_loss(self, features, labels, triplet_data, loss_weights=None):
         if loss_weights is None:
             loss_weights = {
-                'triplet': 0.3,
-                'classification': 0.7
+                'triplet': 0.5,
+                'classification': 0.5
             }
 
         mean_pred, variance_pred = self.forward(features)

@@ -1,11 +1,33 @@
-// hooks/useEbayListings.ts
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { apiFetch, mlFetch } from '../api/client';
-import type { BasicEbayListing } from '../types/interfaces';
 
-export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
-  const [listings, setListings] = useState<BasicEbayListing[]>([]);
+type ListingItem = {
+  id?: number;
+  ebay_id?: string;
+  listing?: {
+    id: number;
+    ebay_id: string;
+  };
+};
+
+function getEbayId(item: ListingItem): string {
+  if ('listing' in item && item.listing) {
+      return item.listing.ebay_id;
+    }
+  return item.ebay_id!;}
+
+function getId(item: ListingItem): number {
+  if ('listing' in item && item.listing) {
+    return item.listing.id;
+  }
+  return item.id!;
+}
+
+export const useEbayListings = <T extends ListingItem>(
+  endpoint: string, 
+  refreshEndpoint: string
+) => {
+  const [listings, setListings] = useState<T[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,7 +76,7 @@ export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
     listingId: number, 
     index: number, 
     event: React.MouseEvent,
-    currentPageListings: BasicEbayListing[]
+    currentPageListings: T[]
   ): void => {
     const listing = currentPageListings[index];
     if (!listing) return;
@@ -68,7 +90,7 @@ export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
         const newSelected = { ...prev };
         for (let i = startIndex; i <= endIndex; i++) {
           if (currentPageListings[i]) {
-            newSelected[currentPageListings[i].id] = shouldSelect;
+            newSelected[getId(currentPageListings[i])] = shouldSelect;
           }
         }
         return newSelected;
@@ -79,9 +101,9 @@ export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
         for (let i = startIndex; i <= endIndex; i++) {
           if (currentPageListings[i]) {
             if (shouldSelect) {
-              newSet.add(currentPageListings[i].ebay_id);
+              newSet.add(getEbayId(currentPageListings[i]));
             } else {
-              newSet.delete(currentPageListings[i].ebay_id);
+              newSet.delete(getEbayId(currentPageListings[i]));
             }
           }
         }
@@ -98,9 +120,9 @@ export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
       setKeeperIds(prev => {
         const newSet = new Set(prev);
         if (newValue) {
-          newSet.add(listing.ebay_id);
+          newSet.add(getEbayId(listing));
         } else {
-          newSet.delete(listing.ebay_id);
+          newSet.delete(getEbayId(listing));
         }
         return newSet;
       });
@@ -109,12 +131,12 @@ export const useEbayListings = (endpoint: string, refreshEndpoint: string) => {
     setLastClickedIndex(index);
   };
 
-  const submitAnnotations = async (currentPageListings: BasicEbayListing[], nextPage: () => void) => {
+  const submitAnnotations = async (currentPageListings: T[], nextPage: () => void) => {
     try {
       setSubmitting(true);
       const allListings = currentPageListings.map(listing => ({  
-        ebay_id: listing.ebay_id,
-        label: keeperIds.has(listing.ebay_id)
+        ebay_id: getEbayId(listing),
+        label: keeperIds.has(getEbayId(listing))
       }));
 
       const response = await mlFetch('/ebay/annotated/', {

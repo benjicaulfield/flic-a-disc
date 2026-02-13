@@ -44,14 +44,11 @@ def save_listings(inventory):
         )
 
 
-def score_and_filter_seller_listings(seller):
+def score_and_filter_seller_listings(inventory):
     trainer = BanditTrainer()
-    
     trainer.load_latest_model()
-    
     weights = KnapsackWeights.objects.first()
     
-    inventory = get_inventory(seller)
     save_listings(inventory)
 
     demand_norm = demand_normalizer(inventory)
@@ -66,6 +63,10 @@ def score_and_filter_seller_listings(seller):
                  weights.price_diff * price_diff +
                  weights.demand * demand)
         listing['score'] = score
+        price, currency = listing['record_price'].split(', ')
+        usd_price = convert_to_usd(float(price), currency, get_exchange_rates())
+        listing['price'] = usd_price
+        listing['currency'] = 'USD'
 
     return inventory
 
@@ -74,7 +75,6 @@ def knapsack(inventory, budget):
         knapsack_solver.SolverType.KNAPSACK_MULTIDIMENSION_BRANCH_AND_BOUND_SOLVER,
         'DiscogsKnapsack'
     )
-
     values = [int(listing['score'] * 1000) for listing in inventory]  
     weights = [[int(convert_to_usd(listing['price'], listing['currency'], RATES) * 100) 
             for listing in inventory]]    
@@ -106,12 +106,13 @@ def demand_normalizer(inventory):
 def price_diffs(listing):
     price, currency = listing['record_price'].split(', ')
     dollar_price = convert_to_usd(price, currency, RATES)
-    sugg_price = listing.get('suggested_price', 0)
+    sugg_price = listing.get('suggested_price') or 0
     return max(0, (float(sugg_price) - dollar_price))
 
 def price_diff_normalizer(inventory):
     diffs = [price_diffs(listing) for listing in inventory]
-    return max(diffs) if diffs else 1
+    max_diff = max(diffs) if diffs else 0
+    return max_diff if max_diff > 0 else 1
 
 def get_embeddings(inventory, trainer):
     features = trainer.feature_extractor.extract_batch_features(inventory)

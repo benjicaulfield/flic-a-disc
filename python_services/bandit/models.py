@@ -41,6 +41,14 @@ class DiscogsListing(models.Model):
     class Meta:
         db_table = 'discogs_discogslisting'
 
+class EbayBasicListing(models.Model):
+    ebay_title = models.TextField()
+    price = models.CharField(max_length=50)
+    wanted = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'ebay_basic_listing'
+
 class EbayListing(models.Model):
     id = models.AutoField(primary_key=True)
     ebay_id = models.CharField(max_length=255, unique=True)
@@ -160,4 +168,14 @@ class KnapsackWeights(models.Model):
     price_diff = models.FloatField(default=0.33)
     demand = models.FloatField(default=0.34)
     updated_at = models.DateTimeField(auto_now=True)
+
+class KnapsackSession(models.Model):
+    seller_name = models.CharField(max_length=255)
+    budget = models.FloatField()
+    total_cost = models.FloatField()
+    total_score = models.FloatField()
+    selected_count = models.IntegerField()
+    selected_items = models.JSONField()  # Store full item details
+    contenders = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
 

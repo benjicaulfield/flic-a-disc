@@ -67,38 +67,38 @@ def select_hard_negative(anchor, negative_candidates, feature_extractor):
     return random.choice(top_candidates)[0]
 
 def generate_triplets_from_batch(current_batch, current_labels,
-                                 keeper_history, non_keeper_history):
+                                 keeper_history, non_keeper_history,
+                                 num_triplets_per_keeper=10,
+                                 hard_mining_ratio=0.5):
     batch_keepers = [
         record for record, label in zip(current_batch, current_labels)
         if label
     ]
     
-    if len(batch_keepers) == 0:
-        # No keepers in this batch
-        return None
-    
-    if len(keeper_history) == 0 or len(non_keeper_history) == 0:
-        # Not enough history yet
+    if len(batch_keepers) == 0 or len(keeper_history) < 10 or len(non_keeper_history) < 10:
         return None
     
     anchors = []
     positives = []
     negatives = []
     
+    # Generate multiple triplets per keeper
     for anchor in batch_keepers:
-        # Positive: random keeper from history
-        positive = random.choice(keeper_history)
-        
-        # Negative: random non-keeper from history
-        negative = random.choice(non_keeper_history)
-        
-        anchors.append(anchor)
-        positives.append(positive)
-        negatives.append(negative)
+        for i in range(num_triplets_per_keeper):
+            positive = random.choice(keeper_history)
+            
+            # Use hard negatives for 50% of triplets
+            if i < num_triplets_per_keeper * hard_mining_ratio:
+                negative = select_hard_negative(anchor, non_keeper_history, None)
+            else:
+                negative = random.choice(non_keeper_history)
+            
+            anchors.append(anchor)
+            positives.append(positive)
+            negatives.append(negative)
     
     return {
         'anchors': anchors,
         'positives': positives,
         'negatives': negatives
     }
-        

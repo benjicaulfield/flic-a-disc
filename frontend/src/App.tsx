@@ -6,6 +6,7 @@ import DiscogsScraperTrigger from './pages/DiscogsScraperTrigger';
 import DiscogsInventoryView from './pages/DiscogsInventoryView';
 import DiscogsKnapsack from './pages/DiscogsKnapsack';
 import DiscogsKeepers from './pages/DiscogsKeepers';
+import DiscogsRankingTrainer from './pages/DiscogsRankingTrainer';
 import TradingSimulator from './pages/TradingSimulator';
 import WfmuPlaylistParser from './pages/WfmuPlaylistParser';
 import EbayAuctions from './pages/EbayAuctions';
@@ -69,6 +70,7 @@ return (
               : <Navigate to="/" replace /> } />
         <Route path="/discogs/training" element={user ? <DiscogsTraining /> : <Navigate to="/" />} />
         <Route path="/discogs/knapsack" element={user ? <DiscogsKnapsack /> : <Navigate to="/" />} />
+        <Route path="/discogs/ranking-trainer" element={user ? <DiscogsRankingTrainer /> : <Navigate to="/" />} />
         <Route path="/discogs/seller-trigger" element={user ? <DiscogsSellerTrigger /> : <Navigate to ="/" />} />
         <Route path="/discogs/scraper-trigger" element={user ? <DiscogsScraperTrigger /> : <Navigate to ="/" />} />
         <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to ="/" />} />

@@ -4,9 +4,8 @@ from decouple import config
 import discogs_client
 from discogs_client.exceptions import HTTPError
 from datetime import datetime
+from ..models import Record 
 from .rate_limiter import RateLimiter, rate_limit_client
-
-
 
 consumer_key = config('DISCOGS_CONSUMER_KEY')
 consumer_secret = config('DISCOGS_CONSUMER_SECRET')
@@ -77,7 +76,7 @@ def get_inventory(username):
     d = authenticate_client()
     records = []
     user = d.user(username)
-    inventory = user.inventory
+    inventory = user.inventory    
     inventory.per_page = 250
 
     for i in range(1, 100):
@@ -112,7 +111,6 @@ def filter_page(page):
             format_str = ' '.join(fmt) if isinstance(fmt, list) else str(fmt)
 
             if 'LP' in format_str and wanted(listing):
-                print(listing)
                 parsed = parse_listing(listing)
                 if isinstance(parsed, dict):   # only keep dicts
                     keepers.append(parsed)
@@ -142,17 +140,6 @@ def parse_listing(l):
         _styles = l.release.styles or []
         _year   = l.release.year
 
-        if hasattr(l.release, 'price_suggestions') and l.release.price_suggestions:
-            try:
-                suggestions = l.release.price_suggestions.fetch()  # or .data
-                print(suggestions)
-                _suggested_price = suggestions.get(_media_condition, {}).get('value')
-                print(_suggested_price)
-            except:
-                _suggested_price = None
-        else:
-            _suggested_price = None
-
         return {
             'discogs_id': _id,
             'media_condition': _media_condition,
@@ -167,7 +154,7 @@ def parse_listing(l):
             'genres': _genres,
             'styles': _styles,
             'year': _year,
-            'suggested_price': _suggested_price,
+            'suggested_price': get_suggested_price(l.release, _media_condition)
         }
     except Exception as e:
         print(f"Error parsing listing: {e}")
@@ -185,3 +172,23 @@ def wanted(listing):
         return in_wantlist > in_collection
     except Exception:
         return False
+
+def get_suggested_price(release, condition):
+    try:
+        record = Record.objects.filter(discogs_id=release.id).first()
+
+        if record and record.suggested_price:
+            vg_plus = record.suggested_price.value
+        else:
+            vg_plus = release.price_suggestions.very_good_plus.value
+        
+        MULTIPLIERS = {
+            'Near Mint (NM or M-)': 1.31,
+            'Very Good Plus (VG+)': 1.0,
+            'Very Good (VG)': 0.69,
+            'Good Plus (G+)': 0.38,
+        }
+        
+        return vg_plus * MULTIPLIERS.get(condition, 1.0)
+    except:
+        return None

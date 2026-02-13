@@ -18,7 +18,7 @@ from rest_framework.response import Response
 from sklearn.metrics.pairwise import cosine_similarity
 from .models import (Record, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, 
                      ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance,
-                     KnapsackWeights, DiscogsSeller)
+                     KnapsackWeights, DiscogsSeller, KnapsackSession)
 from .training import BanditTrainer
 from .knapsack import knapsack, score_and_filter_seller_listings
 from .features import RecordFeatureExtractor
@@ -646,7 +646,9 @@ def rebuild_tfidf_vocab(request):
 @api_view(['POST'])
 def ebay_title_similarity_filter(request):
     listings = request.data.get('listings', [])
+    print(listings)
     top_n = request.data.get('top_n', 500)
+    print(top_n)
     if not listings: return Response({'error': 'no listings'}, status=400)
     
     try:
@@ -886,33 +888,113 @@ def record_ebay_batch_performance(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+def ranking_trainer_scorer(request):
+    batch = request.data.get("batch")
+    scored_batch = score_and_filter_seller_listings(batch)
+    
+    return Response({
+        "batch": scored_batch
+    })
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def tune_weights(request):
+    ranking = request.data.get("ranking") or []
+    listings = request.data.get("listings") or []
+    if len(ranking) < 2 or not listings:
+        return Response({"error": "ranking (>=2) and listings are required"}, status=status.HTTP_400_BAD_REQUEST)
+
+    # normalize ids to str to avoid int/str mismatches
+    listing_map = {str(l["id"]): l for l in listings}
+    ids = [str(x) for x in ranking]
+
+    try:
+        X = np.array(
+            [[float(listing_map[i]["embedding"]),
+              float(listing_map[i]["price_diff"]),
+              float(listing_map[i]["is_want"])] for i in ids],
+            dtype=float,
+        )
+    except KeyError as e:
+        return Response({"error": f"unknown listing id in ranking: {e.args[0]}"}, status=status.HTTP_400_BAD_REQUEST)
+
+    weights_obj = KnapsackWeights.objects.first()
+    w = np.array([weights_obj.embedding, weights_obj.price_diff, weights_obj.is_want], dtype=float)
+
+    lr = 0.1  # aggressive
+    scores = X @ w  # recompute scores from current weights
+
+    n = len(ids)
+    upper = np.triu(np.ones((n, n), dtype=bool), k=1)  # i < j means user prefers i over j
+    violations = ((scores[:, None] - scores[None, :]) < 0) & upper
+    num_violations = int(violations.sum())
+    total_pairs = int(upper.sum())
+
+    if num_violations:
+        diffs = X[:, None, :] - X[None, :, :]          # (n, n, 3)
+        grad = diffs[violations].mean(axis=0)          # (3,)
+        w = w + lr * grad
+
+        w = np.clip(w, 0.0, None)                      # non-negative
+        s = float(w.sum())
+        if s > 0:
+            w = w / s                                  # normalize to sum=1
+
+        weights_obj.embedding = float(w[0])
+        weights_obj.price_diff = float(w[1])
+        weights_obj.is_want = float(w[2])
+        weights_obj.save()
+
+    return Response(
+        {
+            "weights": {
+                "embedding": weights_obj.embedding,
+                "price_diff": weights_obj.price_diff,
+                "is_want": weights_obj.is_want,
+            },
+            "violations": num_violations,
+            "total_pairs": total_pairs,
+            "message": "Weights updated successfully" if num_violations else "No violations; weights unchanged",
+        }
+    )
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
 def discogs_knapsack(request):
-    sellers = request.data.get("sellers", [])
+    seller = request.data.get("seller")
     budget = request.data.get("budget", 0)
-    knapsacks = []
+    inventory = get_inventory(seller)
+    
+    scored_inventory = score_and_filter_seller_listings(inventory)
+    selected = knapsack(scored_inventory, budget)
+    selected_ids = {id(item) for item in selected}
+    contenders = [item for item in scored_inventory if id(item) not in selected_ids][:40]
+    for item in selected + contenders:
+        item['score'] = float(item['score'])
+        item['price'] = float(item['price'])
 
-    for seller_data in sellers:
-        seller = seller_data['name']
-        scored_inventory = score_and_filter_seller_listings(seller)
-        selected = knapsack(scored_inventory, budget)
-        selected_ids = {id(item) for item in selected}
-        contenders = [item for item in scored_inventory if id(item) not in selected_ids][:40]
-        for item in selected + contenders:
-            item['score'] = float(item['score'])
-            item['price'] = float(item['price'])
+    total_costs = float(sum(item['price'] for item in selected))
+    total_scores = float(sum(item['score'] for item in selected))
 
-        knapsacks.append({
-            "seller": seller,
-            "knapsack": selected,
-            "contenders": contenders,
-            "total_selected": len(selected),
-            "total_cost": float(sum(item['price'] for item in selected)),
-            "total_score": float(sum(item['score'] for item in selected)),
-        })
+    KnapsackSession.objects.create(
+        seller_name = seller,
+        budget = budget,
+        total_cost = total_costs,
+        total_score = total_scores,
+        selected_count = len(selected),
+        selected_items = selected,
+        contenders = contenders
+    )
 
     return Response({
-        "knapsacks": knapsacks,
-        "budget": budget
+        "budget": budget,
+        "seller": seller,
+        "knapsack": selected,
+        "contenders": contenders,
+        "total_selected": len(selected),
+        "total_cost": total_costs,
+        "total_score": total_scores
     })
 
     
