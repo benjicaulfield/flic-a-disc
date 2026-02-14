@@ -1,6 +1,0 @@
-artifact_location: file:///Users/benjamincaulfield/Documents/flic-a-disc/python_services/mlruns/217497154879595330
-creation_time: 1771052463063
-experiment_id: '217497154879595330'
-last_update_time: 1771052463063
-lifecycle_stage: active
-name: discogs-bandit-model
