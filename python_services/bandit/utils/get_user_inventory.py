@@ -103,20 +103,56 @@ def get_inventory(username):
 
 def filter_page(page):
     keepers = []
+    
+    release_ids = []
     for listing in page:
         try:
-            data = listing.data or {}                 # ← handle listing.data is None
-            release = data.get('release') or {}       # ← handle 'release': None
-            fmt = release.get('format') or []         # ← handle 'format': None
-            format_str = ' '.join(fmt) if isinstance(fmt, list) else str(fmt)
+            release_ids.append(listing.release.id)
+        except:
+            continue
+    
+    existing_records = {
+        r.discogs_id: r 
+        for r in Record.objects.filter(discogs_id__in=release_ids)
+    }
+    
+    for listing in page:
+        try:
+            release_id = listing.release.id
+            
+            if release_id in existing_records:
+                record = existing_records[release_id]
+                parsed = {
+                    'discogs_id': record.discogs_id,
+                    'media_condition': listing.condition,
+                    'record_price': f"{listing.price.value}, {listing.price.currency}",
+                    'seller': listing.seller.username,
+                    'artist': record.artist,
+                    'title': record.title,
+                    'label': record.label,
+                    'catno': record.catno,
+                    'wants': record.wants,
+                    'haves': record.haves,
+                    'genres': record.genres,
+                    'styles': record.styles,
+                    'year': record.year,
+                    'suggested_price': get_suggested_price(listing.release, listing.condition)
+                }
+                keepers.append(parsed)
+            else:
+                data = listing.data or {}
+                release = data.get('release') or {}
+                fmt = release.get('format') or []
+                format_str = ' '.join(fmt) if isinstance(fmt, list) else str(fmt)
 
-            if 'LP' in format_str and wanted(listing):
-                parsed = parse_listing(listing)
-                if isinstance(parsed, dict):   # only keep dicts
-                    keepers.append(parsed)
+                if 'LP' in format_str and wanted(listing):
+                    parsed = parse_listing(listing)
+                    if isinstance(parsed, dict):
+                        keepers.append(parsed)
         except Exception as e:
             print(f"Error filtering listing: {e}")
             continue
+    
     return keepers
 
 def parse_listing(l):
@@ -178,7 +214,17 @@ def get_suggested_price(release, condition):
         record = Record.objects.filter(discogs_id=release.id).first()
 
         if record and record.suggested_price:
-            vg_plus = record.suggested_price.value
+            # Parse "<Price 149.5 'USD'>" format
+            price_str = str(record.suggested_price)
+            if '<Price' in price_str:
+                # Extract number from "<Price 149.5 'USD'>"
+                import re
+                match = re.search(r'<Price ([0-9.]+)', price_str)
+                vg_plus = float(match.group(1)) if match else None
+            elif ', ' in price_str:
+                vg_plus = float(price_str.split(', ')[0])
+            else:
+                vg_plus = float(price_str)
         else:
             vg_plus = release.price_suggestions.very_good_plus.value
         
@@ -190,5 +236,6 @@ def get_suggested_price(release, condition):
         }
         
         return vg_plus * MULTIPLIERS.get(condition, 1.0)
-    except:
+    except Exception as e:
+        print(f"ERROR in get_suggested_price for {release.id}: {e}")
         return None

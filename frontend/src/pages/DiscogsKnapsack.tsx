@@ -136,6 +136,9 @@ const DiscogsKnapsack = () => {
                       <th className="px-4 py-2 text-left">Artist</th>
                       <th className="px-4 py-2 text-left">Title</th>
                       <th className="px-4 py-2 text-left">Condition</th>
+                      <th className="px-4 py-2 text-left">Wants</th>
+                      <th className="px-4 py-2 text-left">Haves</th>
+                      <th className="px-4 py-2 text-left">Sugg. Price</th>
                       <th className="px-4 py-2 text-left">Price</th>
                       <th className="px-4 py-2 text-left">Score</th>
                     </tr>
@@ -146,6 +149,9 @@ const DiscogsKnapsack = () => {
                         <td className="px-4 py-2">{item.artist}</td>
                         <td className="px-4 py-2">{item.title}</td>
                         <td className="px-4 py-2">{item.media_condition}</td>
+                        <td className="px-4 py-2">{item.wants}</td>
+                        <td className="px-4 py-2">{item.haves}</td>
+                        <td className="px-4 py-2">${item.suggested_price?.toFixed(2) || 'N/A'}</td>
                         <td className="px-4 py-2">${item.price.toFixed(2)} {item.currency}</td>
                         <td className="px-4 py-2">{item.score.toFixed(3)}</td>
                       </tr>
@@ -166,6 +172,9 @@ const DiscogsKnapsack = () => {
                         <th className="px-4 py-2 text-left">Artist</th>
                         <th className="px-4 py-2 text-left">Title</th>
                         <th className="px-4 py-2 text-left">Condition</th>
+                        <th className="px-4 py-2 text-left">Wants</th>
+                        <th className="px-4 py-2 text-left">Haves</th>
+                        <th className="px-4 py-2 text-left">Sugg. Price</th>
                         <th className="px-4 py-2 text-left">Price</th>
                         <th className="px-4 py-2 text-left">Score</th>
                       </tr>
@@ -176,6 +185,9 @@ const DiscogsKnapsack = () => {
                           <td className="px-4 py-2">{item.artist}</td>
                           <td className="px-4 py-2">{item.title}</td>
                           <td className="px-4 py-2">{item.media_condition}</td>
+                          <td className="px-4 py-2">{item.wants}</td>
+                          <td className="px-4 py-2">{item.haves}</td>
+                          <td className="px-4 py-2">${item.suggested_price?.toFixed(2) || 'N/A'}</td>
                           <td className="px-4 py-2">${item.price.toFixed(2)} {item.currency}</td>
                           <td className="px-4 py-2">{item.score.toFixed(3)}</td>
                         </tr>

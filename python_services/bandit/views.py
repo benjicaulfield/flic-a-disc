@@ -467,7 +467,6 @@ def ebay_annotate(request):
         else: non_keeper_ids.append(ebay_id)
         
         try:
-            # Update the listing with annotation
             listing = EbayListing.objects.get(ebay_id=ebay_id)
             listing.wanted = label
             listing.evaluated = True

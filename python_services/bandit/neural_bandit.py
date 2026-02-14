@@ -1,7 +1,7 @@
+import mlflow
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import numpy as np
 
 from .contrastive_encoder import ContrastiveEncoder
 
@@ -81,8 +81,8 @@ class NeuralContextualBandit(nn.Module):
     def combined_loss(self, features, labels, triplet_data, loss_weights=None):
         if loss_weights is None:
             loss_weights = {
-                'triplet': 0.5,
-                'classification': 0.5
+                'triplet': 0.3,
+                'classification': 0.7
             }
 
         mean_pred, variance_pred = self.forward(features)
@@ -130,7 +130,6 @@ class NeuralContextualBandit(nn.Module):
 
         labels_tensor = torch.FloatTensor(labels)
         print(f"🔍 Labels shape: {labels_tensor.shape}")
-
 
         triplet_features = None
         if triplet_records is not None:
@@ -224,6 +223,7 @@ class NeuralContextualBandit(nn.Module):
                     f"Train Loss: {avg_train_loss:.4f}, "
                     f"Val Loss: {val_loss:.4f}, "
                     f"Val Acc: {val_acc:.4f}")
+                    
             if patience_counter >= patience:
                 print(f"\n🛑 Early stopping at epoch {epoch}")
                 print(f"   Best val acc: {best_val_acc:.4f} at epoch {epoch - patience}")

@@ -1,0 +1,15 @@
+artifact_uri: file:///Users/benjamincaulfield/Documents/flic-a-disc/python_services/mlruns/217497154879595330/c3f693e6cc5a4d6f9a14f01feff87ab2/artifacts
+end_time: 1771054669552
+entry_point_name: ''
+experiment_id: '217497154879595330'
+lifecycle_stage: active
+run_id: c3f693e6cc5a4d6f9a14f01feff87ab2
+run_name: initial_training
+run_uuid: c3f693e6cc5a4d6f9a14f01feff87ab2
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1771054652730
+status: 4
+tags: []
+user_id: benjamincaulfield

@@ -49,6 +49,19 @@ def score_and_filter_seller_listings(inventory):
     trainer.load_latest_model()
     weights = KnapsackWeights.objects.first()
     
+    ALLOWED_CONDITIONS = [
+        'Near Mint (NM or M-)',
+        'Very Good Plus (VG+)'
+    ]
+    
+    inventory = [
+        item for item in inventory 
+        if item.get('media_condition') in ALLOWED_CONDITIONS
+    ]
+    
+    if not inventory:
+        return []
+    
     save_listings(inventory)
 
     demand_norm = demand_normalizer(inventory)
