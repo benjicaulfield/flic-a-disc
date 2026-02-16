@@ -81,18 +81,25 @@ class NeuralContextualBandit(nn.Module):
     def combined_loss(self, features, labels, triplet_data, loss_weights=None):
         if loss_weights is None:
             loss_weights = {
-                'triplet': 0.3,
-                'classification': 0.7
+                'triplet': 0.2,
+                'classification': 0.8
             }
 
         mean_pred, variance_pred = self.forward(features)
 
-        pos_weight = (len(labels) - labels.sum()) / (labels.sum() + 1e-6)
-        classification_loss = F.binary_cross_entropy(mean_pred, 
-                              labels.float(), weight=pos_weight,
-                              reduction='mean')
-        
+        num_pos = labels.sum()
+        num_neg = len(labels) - num_pos
+        weight_for_1 = num_neg / (num_pos + 1e-6)
 
+        sample_weights = labels * min(weight_for_1, 10.0) + (1 - labels) 
+
+        classification_loss = F.binary_cross_entropy(
+            mean_pred, 
+            labels.float(), 
+            weight=sample_weights,
+            reduction='mean'
+        )
+        
         triplet_loss = torch.tensor(0.0).to(features.device)
         
         if triplet_data is not None:
@@ -204,8 +211,11 @@ class NeuralContextualBandit(nn.Module):
                 val_mean, _ = self.forward(val_features)
                 val_loss = F.binary_cross_entropy(val_mean, val_labels).item()
                 
-                val_pred = (val_mean > 0.5).float()
+                val_pred = (val_mean > 0.2).float()
                 val_acc = (val_pred == val_labels).float().mean().item()
+
+                print(f"  Val predictions: min={val_mean.min():.3f}, max={val_mean.max():.3f}, mean={val_mean.mean():.3f}")
+                print(f"  Val pred>0.5: {val_pred.sum()}/{len(val_pred)} ({val_pred.mean():.2%})")
             
             history['val_loss'].append(val_loss)
             history['val_accuracy'].append(val_acc)
