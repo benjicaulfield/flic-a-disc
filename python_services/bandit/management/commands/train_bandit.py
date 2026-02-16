@@ -1,5 +1,7 @@
 from django.core.management.base import BaseCommand
 from bandit.training import BanditTrainer
+from bandit.models import Record
+from bandit.features import RecordFeatureExtractor
 
 
 class Command(BaseCommand):
@@ -26,6 +28,7 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        trainer = BanditTrainer()
         epochs = options['epochs']
         batch_size = options['batch_size']
         learning_rate = options['learning_rate']
@@ -37,20 +40,8 @@ class Command(BaseCommand):
             f'  Learning rate: {learning_rate}\n'
         ))
         
-        trainer = BanditTrainer()
+        trainer.train_new_model(epochs, batch_size, learning_rate)
         
-        try:
-            history = trainer.train_new_model(
-                epochs=epochs,
-                batch_size=batch_size,
-                learning_rate=learning_rate
-            )
-            
-            self.stdout.write(self.style.SUCCESS(
-                f'\n✅ Training completed successfully!\n'
-                f'Final accuracy: {history["val_accuracy"][-1]:.2%}\n'
-            ))
-            
-        except Exception as e:
-            self.stdout.write(self.style.ERROR(f'\n❌ Training failed: {str(e)}'))
-            raise
+        
+        
+        
