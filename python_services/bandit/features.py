@@ -1,4 +1,4 @@
-import json
+import re
 import hashlib
 import pickle
 
@@ -55,8 +55,8 @@ class RecordFeatureExtractor:
             'embedding_dims': self.get_embedding_dims(),
             'categorical_features': 8,  # artist + label + 3 genres + 3 styles
             'numerical_features': 3,   # wants, haves, ratio
-            'other_features': 10,      # price + year + condition (8 dims)
-            'total_features': 21  
+            'other_features': 6,      # price + year
+            'total_features': 17  
         }
     
     def save_state(self, filepath):
@@ -147,18 +147,19 @@ class RecordFeatureExtractor:
             return 0.0
     
         try:
-            price_clean = price_str.replace('$', '').replace('€', '').replace('£', '')
-            price_clean = price_clean.replace('USD', '').replace('EUR', '').replace('GBP', '')          
-            price_parts = price_clean.split(',')
-            price_numeric = price_parts[0].strip()
+            for symbol in ['$', '€', '£', '¥', '₹', '₽', 'R$', 'kr', 'zł']:
+                price_clean = price_str.replace(symbol, '')
+            price_clean = re.sub(r'\b[A-Z]{3}\b', '', price_clean)         
+            price_clean = price_clean.replace(',', '')
+            price_clean = price_clean.strip()
             
-            if not price_numeric:
+            if not price_clean:
                 return 0.0
-                
-            return float(price_numeric)
             
         except (ValueError, AttributeError, IndexError):
             return 0.0
+        
+        return price_clean
         
     def _normalize_year(self, year):
         if year is None or year <= 1900 or year > 2025 or self.min_year is None or self.max_year is None:
@@ -269,17 +270,15 @@ class RecordFeatureExtractor:
         normalized_titles = []
 
         for record in records:
-            wants = record.get('wants', 0)
-            haves = record.get('haves', 0)
-            ratio = wants / max(haves, 1) if haves > 0 else wants
-            numerical_features.append([wants, haves, ratio])
+            raw = self._extract_raw_values(record)
 
-            price = self._parse_price(record.get('record_price', ''))
-            prices.append(price)
+            numerical_features.append([raw['wants'], raw['haves'], raw['ratio']])
 
-            year = record.get('year')
-            if year is not None:
-                years.append(year)
+            prices.append(raw['price'])
+
+            if raw['year'] is not None: years.append(raw['year'])
+            if raw['norm_title']: normalized_titles.append(raw['norm_title'])
+            
             if record.get('_is_ebay'):
                 norm_title = normalize_title(record.get('ebay_title', ''))
             else:
@@ -320,18 +319,22 @@ class RecordFeatureExtractor:
         features.extend(genre_indices)
         features.extend(style_indices)
 
+        raw = self._extract_raw_values(record)
+
         numerical_features = self._extract_numerical_features(record)
         features.extend(numerical_features)
 
-        price = self._parse_price(record.get('record_price', ''))
-        price_norm = self.price_scaler.transform([[price]])[0][0]
+        price_norm = self.price_scaler.transform([[raw['price']]])[0][0]
         features.append(price_norm)
+
+        log_wants = np.log1p(raw['wants'])
+        log_haves = np.log1p(raw['haves'])
+        log_price = np.log1p(raw['price'])
+        log_ratio = np.log1p(raw['ratio'])
+        features.extend([log_wants, log_haves, log_price, log_ratio])
 
         year_norm = self._normalize_year(record.get('year'))
         features.append(year_norm)
-
-        condition_features = self._encode_condition(record.get('media_condition', ''))
-        features.extend(condition_features)
 
         if record.get('_is_ebay'):
             norm_title = normalize_title(record.get('ebay_title', ''))
@@ -360,3 +363,28 @@ class RecordFeatureExtractor:
         stacked = np.vstack(feature_vectors)
         print(f"🔍 Final stacked shape: {stacked.shape}")
         return stacked
+    
+    def _extract_raw_values(self, record):
+        """Extract raw values from record (used by both fit and extract_features)"""
+        wants = record.get('wants', 0)
+        haves = record.get('haves', 0)
+        ratio = wants / max(haves, 1)
+        
+        price = self._parse_price(record.get('suggested_price', ''))
+        
+        year = record.get('year')
+        
+        if record.get('_is_ebay'):
+            norm_title = normalize_title(record.get('ebay_title', ''))
+        else:
+            norm_title = create_mock_ebay_title(record)
+        
+        return {
+            'wants': wants,
+            'haves': haves,
+            'ratio': ratio,
+            'price': price,
+            'year': year,
+            'norm_title': norm_title
+        }\
+        

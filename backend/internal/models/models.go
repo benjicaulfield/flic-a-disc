@@ -3,6 +3,7 @@ package models
 import (
 	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -22,13 +23,30 @@ func (s *StringSlice) Scan(value interface{}) error {
 		return nil
 	}
 
+	var data []byte
+
 	switch v := value.(type) {
 	case []byte:
-		return json.Unmarshal(v, s)
+		data = v
 	case string:
-		return json.Unmarshal([]byte(v), s)
+		data = []byte(v)
+	default:
+		return fmt.Errorf("cannot scan type %T into StringSlice", value)
 	}
-	return nil
+
+	// Try to unmarshal directly first
+	if err := json.Unmarshal(data, s); err == nil {
+		return nil
+	}
+
+	// If that fails, try unescaping first (double-encoded JSON)
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		return json.Unmarshal([]byte(str), s)
+	}
+
+	// If both fail, return the original error
+	return json.Unmarshal(data, s)
 }
 
 // Record represents a music record

@@ -238,9 +238,12 @@ def receive_feedback(request):
     # ✅ NEW: Calculate and save batch performance
     labels_array = np.array(labels)
     predictions_array = np.array(predictions)
+
+    threshold_config = ThresholdConfig.objects.first()
+    threshold = threshold_config.threshold if threshold_config else 0.5
     
     # Use threshold of 0.5 for binary classification
-    predicted_labels = (predictions_array > 0.5).astype(int)
+    predicted_labels = (predictions_array > threshold).astype(int)
     correct = np.sum(predicted_labels == labels_array)
     accuracy = correct / len(labels) if len(labels) > 0 else 0.0
     
@@ -322,40 +325,71 @@ def receive_feedback(request):
         }
     })
 
-def calculate_optimal_threshold(window_size=500):
+def calculate_optimal_threshold(window_size=500, min_recall=0.4):
     recent_instances = BanditTrainingInstance.objects.order_by('-timestamp')[:window_size]
 
     if len(recent_instances) < 50:
         return 0.5, 0.0
     
-    predictions = []
-    actuals = []
+    predictions = np.array([inst.predicted_prob for inst in recent_instances])
+    actuals = np.array([1 if inst.actual else 0 for inst in recent_instances])
+    
+    # Check for sufficient positive examples
+    num_positives = actuals.sum()
+    if num_positives < 10:
+        print(f"⚠️ Only {num_positives} keepers in window, using default threshold")
+        return 0.5, 0.0
 
-    for instance in recent_instances:
-        predictions.append(instance.predicted_prob)
-        actuals.append(1 if instance.actual else 0)
-
-    predictions = np.array(predictions)
-    actuals = np.array(actuals)
-
+    # Find optimal threshold (finer granularity)
     best_threshold = 0.5
-    best_f1 = 0
+    best_precision = 0.0
+    best_recall = 0.0
 
-    for threshold in np.arange(0.05, 0.95, 0.05):
+    for threshold in np.arange(0.01, 0.99, 0.01):  # Finer steps
         pred_binary = (predictions > threshold).astype(int)
         tp = ((pred_binary == 1) & (actuals == 1)).sum()
         fp = ((pred_binary == 1) & (actuals == 0)).sum()
         fn = ((pred_binary == 0) & (actuals == 1)).sum()
         
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
-        if f1 > best_f1:
-            best_f1 = f1
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0   
+
+        if recall >= min_recall and precision > best_precision:
+            best_precision = precision
             best_threshold = threshold
+            best_recall = recall
+
+    best_f1 = 2 * (best_precision * best_recall) / (best_precision + best_recall) if (best_precision + best_recall) > 0 else 0.0
+
     
+    # Track in MLflow
+    import mlflow
+    mlflow.set_tracking_uri('file:///Users/benjamincaulfield/Documents/flic-a-disc/python_services/mlruns')
+    mlflow.set_experiment("threshold-tuning")
+    
+    with mlflow.start_run():
+        mlflow.log_params({
+            "window_size": window_size,
+            "num_instances": len(recent_instances),
+            "num_positives": int(num_positives),
+            "min_recall": min_recall
+        })
+        
+        mlflow.log_metrics({
+            "optimal_threshold": best_threshold,
+            "f1_score": best_f1,
+            "precision": best_precision,
+            "recall": best_recall
+        })
+    
+    # Update config
     config, _ = ThresholdConfig.objects.get_or_create(id=1)
+    
+    # Log significant changes
+    if abs(best_threshold - config.threshold) > 0.1:
+        print(f"📊 Threshold updated: {config.threshold:.3f} → {best_threshold:.3f}")
+        print(f"   Precision: {best_precision:.3f}, Recall: {best_recall:.3f}")
+    
     config.threshold = best_threshold
     config.f1_score = best_f1
     config.window_size = window_size
@@ -401,9 +435,7 @@ def select_batch(request):
         candidates=candidate_indices,
         predictions=mean_predictions,
         uncertainties=uncertainties,
-        batch_num=batch_num,
         total_batch_size=20,
-        total_batches=100,
         random_count=3
     )
     

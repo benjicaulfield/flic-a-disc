@@ -2,10 +2,6 @@ import math
 import random
 import numpy as np
 
-def calculate_exploration_rate(batch_num, start=0.7, end=0.3, total_batches=100):
-    decay = math.log(end / start) / total_batches
-    return start * math.exp(decay * batch_num)
-
 def exploit_selection(candidates, predictions, uncertainties, n):
     # top by reward-uncertainty
     scores = np.array(predictions) + 2.0 * np.array(uncertainties)    
@@ -18,13 +14,12 @@ def explore_selection(candidates, uncertainties, m):
     top_indices = np.argsort(uncertainties)[-m:][::-1]
     return [candidates[i] for i in top_indices]
 
-def adaptive_batch_selection(candidates, predictions, uncertainties, batch_num, 
-                             total_batch_size=20, total_batches=100, random_count=8):
+def adaptive_batch_selection(candidates, predictions, uncertainties,
+                             total_batch_size=20, random_count=3):
 
     bandit_size = total_batch_size - random_count
     
-    exploration_rate = calculate_exploration_rate(batch_num)
-    m = int(total_batch_size * exploration_rate)
+    m = 5
     n = bandit_size - m
     
     exploit = exploit_selection(candidates, predictions, uncertainties, n)

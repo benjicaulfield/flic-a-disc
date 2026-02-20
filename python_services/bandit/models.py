@@ -94,7 +94,7 @@ class BanditTrainingInstance(models.Model):
         db_table = 'bandit_training_example'
 
 class ThresholdConfig(models.Model):
-    threshold = models.FloatField(default=0.5)
+    threshold = models.FloatField(default=0.2)
     f1_score = models.FloatField(null=True)
     window_size = models.IntegerField(default=500)
 

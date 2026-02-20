@@ -229,18 +229,14 @@ func (h *Handler) LabelRecords(c *gin.Context) {
 
 	// Process each record decision
 	for _, label := range req.Labels {
-		var listing models.DiscogsListing
-		if err := h.db.First(&listing, label.ID).Error; err != nil {
-			continue
-		}
 
 		if err := h.db.Model(&models.Record{}).
-			Where("id = ?", listing.RecordID).
+			Where("id = ?", label.ID).
 			Updates(map[string]interface{}{
 				"wanted":    label.Label,
 				"evaluated": true,
 			}).Error; err != nil {
-			log.Printf("Failed to update record %d: %v", listing.RecordID, err)
+			log.Printf("Failed to update record %d: %v", label.ID, err)
 		}
 	}
 

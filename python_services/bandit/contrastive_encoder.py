@@ -47,8 +47,7 @@ class ContrastiveEncoder(nn.Module):
             embedding_dims['label_embedding_dim'] +       # 32
             3 * embedding_dims['genre_embedding_dim'] +   # 48 (3 genres)
             3 * embedding_dims['style_embedding_dim'] +   # 48 (3 styles)
-            5 +  # numerical: wants, haves, ratio, price, year
-            8 +  # condition one-hot
+            9 +  # numerical: wants, haves, ratio, price, year
             64
         ) 
 

@@ -10,6 +10,9 @@ Thumbs.db
 # Environment files
 .env
 *.env
+.venv/
+venv/
+*.dump
 discogs_token.json
 *token*
 
@@ -47,3 +50,7 @@ venv/
 
 # Chatlogs
 writing/
+
+# MLFLOW
+mlruns/
+mlruns*/
