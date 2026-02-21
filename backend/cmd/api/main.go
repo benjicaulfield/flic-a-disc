@@ -75,8 +75,10 @@ func main() {
 		protected.GET("/discogs/wanted", h.GetWantedRecords)
 		protected.POST("/discogs/performance", h.RecordBatchPerformance)
 		protected.POST("/discogs/knapsack", h.KnapsackHandler)
+		protected.POST("/discogs/ranking/batch", h.RankingTrainer)
+		protected.GET("/discogs/ranking/submit", h.SubmitRanking)
 		protected.GET("/ebay/auctions", ebayHandler.GetCachedListings)
-		protected.POST("/ebay/refresh", ebayHandler.TriggerFetch)
+		protected.POST("/ebay/refresh_auctions", ebayHandler.TriggerFetchAuctions)
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/auth/me", authHandler.Me)
@@ -94,9 +96,9 @@ func main() {
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      r,
-		ReadTimeout:  120 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  20 * time.Minute,
+		WriteTimeout: 20 * time.Minute,
+		IdleTimeout:  20 * time.Minute,
 	}
 
 	log.Printf("API listening on :%s", port)

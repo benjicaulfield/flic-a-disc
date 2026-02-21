@@ -224,3 +224,42 @@ func (c *Client) RecordPerformance(payload map[string]interface{}) (map[string]i
 
 	return result, nil
 }
+
+func (c *Client) ScoreListings(records []map[string]interface{}) ([]map[string]interface{}, error) {
+	jsonData, _ := json.Marshal(map[string]interface{}{
+		"listings": records,
+	})
+
+	resp, err := c.httpClient.Post(
+		c.baseURL+"/ml/ranking/score/",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		ScoredListings []map[string]interface{} `json:"scored_listings"`
+	}
+	json.Unmarshal(body, &result)
+
+	return result.ScoredListings, nil
+}
+
+func (c *Client) TuneWeights(ranking []int64, allListings []int64) error {
+	jsonData, _ := json.Marshal(map[string]interface{}{
+		"ranking":  ranking,
+		"listings": allListings,
+	})
+
+	_, err := c.httpClient.Post(
+		c.baseURL+"/ml/tune/",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	return err
+}

@@ -1,3 +1,5 @@
 export default function EbayBuyItNow() {
-  return (<div></div>)
+  return (
+    <div></div>
+  )
 }
