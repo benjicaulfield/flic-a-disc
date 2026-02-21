@@ -102,6 +102,83 @@ func (c *Client) GetAccessToken() error {
 	return nil
 }
 
+func (c *Client) SearchBuyItNow() ([]ItemSummary, error) {
+	if err := c.GetAccessToken(); err != nil {
+		return nil, err
+	}
+
+	const (
+		limit     = 200
+		maxItems  = 2000
+		sleepTime = 200 * time.Millisecond
+	)
+
+	allItems := make([]ItemSummary, 0, maxItems)
+	offset := 0
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
+	for offset < maxItems {
+		searchURL := fmt.Sprintf("%s/buy/browse/v1/item_summary/search", c.BaseURL)
+		req, err := http.NewRequest("GET", searchURL, nil)
+		if err != nil {
+			return nil, err
+		}
+
+		q := req.URL.Query()
+		q.Add("q", "lp")
+		q.Add("category_ids", "176985") // Vinyl Records
+		q.Add("filter", "conditionIds:{3000},itemLocationCountry:US,buyingOptions:{FIXED_PRICE}")
+		q.Add("limit", strconv.Itoa(limit))
+		q.Add("offset", strconv.Itoa(offset))
+		q.Add("sort", "newlyListed")
+		req.URL.RawQuery = q.Encode()
+
+		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-EBAY-C-MARKETPLACE-ID", "EBAY_US")
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		if resp.StatusCode != 200 {
+			return nil, fmt.Errorf("search failed (offset %d): %s", offset, string(body))
+		}
+
+		var sr SearchResponse
+		if err := json.Unmarshal(body, &sr); err != nil {
+			return nil, fmt.Errorf("failed to decode: %w", err)
+		}
+
+		if len(sr.ItemSummaries) == 0 {
+			// No more results (or eBay stopped giving them)
+			break
+		}
+
+		// Don’t exceed maxItems
+		remaining := maxItems - len(allItems)
+		if len(sr.ItemSummaries) > remaining {
+			sr.ItemSummaries = sr.ItemSummaries[:remaining]
+		}
+
+		allItems = append(allItems, sr.ItemSummaries...)
+		log.Printf("Fetched %d items (offset %d, total collected %d, total available %d)",
+			len(sr.ItemSummaries), offset, len(allItems), sr.Total)
+
+		offset += limit
+		time.Sleep(sleepTime)
+	}
+
+	return allItems, nil
+}
+
 func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 	// Always refresh token
 	if err := c.GetAccessToken(); err != nil {
@@ -174,7 +251,6 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 		// Optional: Avoid throttling
 		time.Sleep(200 * time.Millisecond)
 	}
-
 	return allItems, nil
 }
 
