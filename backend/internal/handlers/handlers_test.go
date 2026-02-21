@@ -44,6 +44,6 @@ func TestKnapsackEndpoint(t *testing.T) {
 	bodyBytes, _ := io.ReadAll(resp.Body)
 	fmt.Println("Response:", string(bodyBytes))
 
-	assert.NotEmpty(t, result.Knapsacks)
+	assert.NotEmpty(t, result.Knapsack)
 	assert.Equal(t, 250.0, result.Budget)
 }
