@@ -4,9 +4,8 @@ from decouple import config
 import discogs_client
 from discogs_client.exceptions import HTTPError
 from datetime import datetime
+from ..models import Record 
 from .rate_limiter import RateLimiter, rate_limit_client
-
-
 
 consumer_key = config('DISCOGS_CONSUMER_KEY')
 consumer_secret = config('DISCOGS_CONSUMER_SECRET')
@@ -77,7 +76,7 @@ def get_inventory(username):
     d = authenticate_client()
     records = []
     user = d.user(username)
-    inventory = user.inventory
+    inventory = user.inventory    
     inventory.per_page = 250
 
     for i in range(1, 100):
@@ -104,27 +103,62 @@ def get_inventory(username):
 
 def filter_page(page):
     keepers = []
+    
+    release_ids = []
     for listing in page:
         try:
-            data = listing.data or {}                 # ← handle listing.data is None
-            release = data.get('release') or {}       # ← handle 'release': None
-            fmt = release.get('format') or []         # ← handle 'format': None
-            format_str = ' '.join(fmt) if isinstance(fmt, list) else str(fmt)
+            release_ids.append(listing.release.id)
+        except:
+            continue
+    
+    existing_records = {
+        r.discogs_id: r 
+        for r in Record.objects.filter(discogs_id__in=release_ids)
+    }
+    
+    for listing in page:
+        try:
+            release_id = listing.release.id
+            
+            if release_id in existing_records:
+                record = existing_records[release_id]
+                parsed = {
+                    'discogs_id': record.discogs_id,
+                    'media_condition': listing.condition,
+                    'record_price': f"{listing.price.value}, {listing.price.currency}",
+                    'seller': listing.seller.username,
+                    'artist': record.artist,
+                    'title': record.title,
+                    'label': record.label,
+                    'catno': record.catno,
+                    'wants': record.wants,
+                    'haves': record.haves,
+                    'genres': record.genres,
+                    'styles': record.styles,
+                    'year': record.year,
+                    'suggested_price': get_suggested_price(listing.release, listing.condition)
+                }
+                keepers.append(parsed)
+            else:
+                data = listing.data or {}
+                release = data.get('release') or {}
+                fmt = release.get('format') or []
+                format_str = ' '.join(fmt) if isinstance(fmt, list) else str(fmt)
 
-            if 'LP' in format_str and wanted(listing):
-                print(listing)
-                parsed = parse_listing(listing)
-                if isinstance(parsed, dict):   # only keep dicts
-                    keepers.append(parsed)
+                if 'LP' in format_str and wanted(listing):
+                    parsed = parse_listing(listing)
+                    if isinstance(parsed, dict):
+                        keepers.append(parsed)
         except Exception as e:
             print(f"Error filtering listing: {e}")
             continue
+    
     return keepers
 
 def parse_listing(l):
     try:
         _id = l.release.id
-        _condition = l.condition
+        _media_condition = l.condition
         _price = (l.price.value, l.price.currency)
         _seller = l.seller.username
 
@@ -142,14 +176,9 @@ def parse_listing(l):
         _styles = l.release.styles or []
         _year   = l.release.year
 
-        try:
-            _suggested_price = l.release.price_suggestions.very_good_plus
-        except (AttributeError, TypeError):
-            _suggested_price = None
-
         return {
             'discogs_id': _id,
-            'media_condition': _condition,
+            'media_condition': _media_condition,
             'record_price': f"{_price[0]}, {_price[1]}",
             'seller': _seller,
             'artist': _artist,
@@ -161,7 +190,7 @@ def parse_listing(l):
             'genres': _genres,
             'styles': _styles,
             'year': _year,
-            'suggested_price': _suggested_price,
+            'suggested_price': get_suggested_price(l.release, _media_condition)
         }
     except Exception as e:
         print(f"Error parsing listing: {e}")
@@ -179,3 +208,34 @@ def wanted(listing):
         return in_wantlist > in_collection
     except Exception:
         return False
+
+def get_suggested_price(release, condition):
+    try:
+        record = Record.objects.filter(discogs_id=release.id).first()
+
+        if record and record.suggested_price:
+            # Parse "<Price 149.5 'USD'>" format
+            price_str = str(record.suggested_price)
+            if '<Price' in price_str:
+                # Extract number from "<Price 149.5 'USD'>"
+                import re
+                match = re.search(r'<Price ([0-9.]+)', price_str)
+                vg_plus = float(match.group(1)) if match else None
+            elif ', ' in price_str:
+                vg_plus = float(price_str.split(', ')[0])
+            else:
+                vg_plus = float(price_str)
+        else:
+            vg_plus = release.price_suggestions.very_good_plus.value
+        
+        MULTIPLIERS = {
+            'Near Mint (NM or M-)': 1.31,
+            'Very Good Plus (VG+)': 1.0,
+            'Very Good (VG)': 0.69,
+            'Good Plus (G+)': 0.38,
+        }
+        
+        return vg_plus * MULTIPLIERS.get(condition, 1.0)
+    except Exception as e:
+        print(f"ERROR in get_suggested_price for {release.id}: {e}")
+        return None

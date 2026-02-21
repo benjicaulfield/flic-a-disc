@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -171,6 +173,13 @@ func (h *Handler) GetDiscogsKeepersPage(c *gin.Context) {
 		selectedUncertainties = append(selectedUncertainties, predictions.Uncertainties[idx])
 	}
 
+	if len(selectedIDs) > 0 {
+		h.db.Model(&models.Record{}).
+			Where("id IN ?", selectedIDs).
+			Update("evaluated", true)
+		log.Printf("Marked %d records as evaluated", len(selectedIDs))
+	}
+
 	c.JSON(200, gin.H{
 		"records":          response,
 		"count":            len(response),
@@ -229,10 +238,14 @@ func (h *Handler) LabelRecords(c *gin.Context) {
 
 	// Process each record decision
 	for _, label := range req.Labels {
+		log.Printf("Processing label: ID=%d, Label=%v", label.ID, label.Label)
+
 		var listing models.DiscogsListing
 		if err := h.db.First(&listing, label.ID).Error; err != nil {
+			log.Printf("❌ Listing not found for ID %d: %v", label.ID, err)
 			continue
 		}
+		log.Printf("Found listing %d -> record %d", listing.ID, listing.RecordID)
 
 		if err := h.db.Model(&models.Record{}).
 			Where("id = ?", listing.RecordID).
@@ -439,6 +452,137 @@ func getExchangeRates() (map[string]float64, error) {
 	return rateData.Rates, nil
 }
 
+func (h *Handler) RankingTrainer(c *gin.Context) {
+	var session models.RankingSession
+
+	result := h.db.Where("completed = ?", false).First(&session)
+	if result.Error != nil {
+		var listings []models.DiscogsListing
+		listingResult := h.db.
+			Joins("Record").
+			Where("discogs_discogslisting.evaluated = ? AND discogs_discogsrecord.wanted = ?", true, true).
+			Order("RANDOM()").
+			Limit(400).
+			Find(&listings)
+
+		if listingResult.Error != nil {
+			log.Printf("Database error: %v", listingResult.Error)
+			c.JSON(500, gin.H{"error": "Failed to fetch listings"})
+			return
+		}
+
+		mlRecords := make([]map[string]interface{}, len(listings))
+		listingIDs := make([]int64, len(listings))
+		for i, listing := range listings {
+			mlRecords[i] = map[string]interface{}{
+				"id":     listing.ID,
+				"artist": listing.Record.Artist,
+				"title":  listing.Record.Title,
+				"label":  listing.Record.Label,
+				"genres": listing.Record.Genres,
+				"styles": listing.Record.Styles,
+				"wants":  listing.Record.Wants,
+				"haves":  listing.Record.Haves,
+				"year":   listing.Record.Year,
+			}
+			listingIDs[i] = int64(listing.ID)
+		}
+
+		scoredRecords, err := h.mlClient.ScoreListings(mlRecords)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "ml scoring failed"})
+			return
+		}
+
+		sort.Slice(scoredRecords, func(i, j int) bool {
+			return scoredRecords[i]["score"].(float64) > scoredRecords[j]["score"].(float64)
+		})
+
+		// Create session
+		session = models.RankingSession{
+			ListingIDs: listingIDs,
+			Completed:  false,
+		}
+		h.db.Create(&session)
+	}
+
+	var completedBatches int64
+	h.db.Model(&models.RankingBatch{}).Where("session_id = ?", session.ID).Count(&completedBatches)
+
+	batchIndex := int(completedBatches)
+	totalBatches := len(session.ListingIDs) / 10
+
+	if batchIndex >= totalBatches {
+		// Session complete
+		session.Completed = true
+		h.db.Save(&session)
+		c.JSON(200, gin.H{"message": "All batches complete"})
+		return
+	}
+
+	// Get current batch of 10 listings
+	start := batchIndex * 10
+	end := start + 10
+	batchIDs := session.ListingIDs[start:end]
+
+	var listings []models.DiscogsListing
+	h.db.Joins("Record").Where("discogs_discogslisting.id IN ?", batchIDs).Find(&listings)
+
+	// Format for frontend
+	records := make([]gin.H, len(listings))
+	for i, listing := range listings {
+		records[i] = gin.H{
+			"id":     listing.ID,
+			"artist": listing.Record.Artist,
+			"title":  listing.Record.Title,
+			"label":  listing.Record.Label,
+			"genres": listing.Record.Genres,
+			"styles": listing.Record.Styles,
+			"wants":  listing.Record.Wants,
+			"haves":  listing.Record.Haves,
+			"year":   listing.Record.Year,
+		}
+	}
+
+	c.JSON(200, gin.H{
+		"records":       records,
+		"batch_index":   batchIndex,
+		"total_batches": totalBatches,
+	})
+}
+
+func (h *Handler) SubmitRanking(c *gin.Context) {
+	var req struct {
+		Ranking []int64 `json:"ranking"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid request"})
+		return
+	}
+
+	var session models.RankingSession
+	if err := h.db.Where("completed = ?", false).First(&session).Error; err != nil {
+		c.JSON(404, gin.H{"error": "No active session"})
+		return
+	}
+
+	var batchIndex int64
+	h.db.Model(&models.RankingBatch{}).Where("session_id = ?", session.ID).Count(&batchIndex)
+
+	batch := models.RankingBatch{
+		SessionID:  session.ID,
+		BatchIndex: int(batchIndex),
+		Ranking:    req.Ranking,
+	}
+	h.db.Create(&batch)
+
+	// Call ML tune endpoint
+	go h.mlClient.TuneWeights(req.Ranking, session.ListingIDs)
+
+	c.JSON(200, gin.H{"success": true})
+}
+
 func (h *Handler) KnapsackHandler(c *gin.Context) {
 	fmt.Println("=== Knapsack handler called ===")
 
@@ -450,67 +594,29 @@ func (h *Handler) KnapsackHandler(c *gin.Context) {
 		return
 	}
 	fmt.Println("Request received:", req)
+	fmt.Println("Seller:", req.Seller) // ADD THIS
+	fmt.Println("Budget:", req.Budget)
+	fmt.Println("Request received:", req)
 
-	rates, err := getExchangeRates()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get exchange rates"})
-		return
-	}
-	fmt.Println("Rates retrieved")
-
-	var eligibles []models.DiscogsSeller
-
-	fmt.Println("Reading sellers.json...")
-	data, err := os.ReadFile("sellers.json")
-	if err != nil {
-		fmt.Println("File read error:", err)
-
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sellers file"})
-		return
-	}
-	fmt.Println("Sellers file read successfully")
-
-	var sellers []models.DiscogsSeller
-	if err := json.Unmarshal(data, &sellers); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read sellers file"})
-		return
-	}
-
-	for _, seller := range sellers {
-		var dbSeller models.DiscogsSeller
-		result := h.db.Where("name = ?", seller.Name).First(&dbSeller)
-		if result.Error != nil {
-			// Doesn't exist, create new
-			h.db.Create(&models.DiscogsSeller{
-				Name:        seller.Name,
-				ShippingMin: seller.ShippingMin,
-				Currency:    seller.Currency,
-			})
-		}
-		dollars := seller.ShippingMin / rates[seller.Currency]
-		if dollars < req.Budget {
-			eligibles = append(eligibles, seller)
-		}
-	}
-	fmt.Println("Eligible sellers count:", len(eligibles))
-	fmt.Println("Building ML request...")
 	mlReq := map[string]interface{}{
-		"sellers": eligibles,
-		"budget":  req.Budget,
+		"seller": req.Seller,
+		"budget": req.Budget,
 	}
-	fmt.Println("Marshaling request...")
+	fmt.Println("building ml request")
 
 	body, _ := json.Marshal(mlReq)
 
 	httpReq, err := http.NewRequest("POST", h.getMLURL()+"/ml/discogs/knapsack/", bytes.NewBuffer(body))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to call ML service"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to call ML service"})
 		return
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
-	fmt.Println("Calling ML service...")
+	fmt.Println("calling ml service")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 20 * time.Minute,
+	}
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		fmt.Println("HTTP request error:", err)
@@ -526,7 +632,6 @@ func (h *Handler) KnapsackHandler(c *gin.Context) {
 		fmt.Println("Decode error:", err)
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		fmt.Println("Response body:", string(bodyBytes))
-
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse ML response"})
 		return
 	}

@@ -4,6 +4,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // StringSlice is a custom type for handling JSON arrays in PostgreSQL
@@ -24,10 +26,32 @@ func (s *StringSlice) Scan(value interface{}) error {
 
 	switch v := value.(type) {
 	case []byte:
-		return json.Unmarshal(v, s)
+		return s.unmarshalOrWrap(v)
 	case string:
-		return json.Unmarshal([]byte(v), s)
+		if v == "" {
+			*s = StringSlice{}
+			return nil
+		}
+		return s.unmarshalOrWrap([]byte(v))
 	}
+	return nil
+}
+
+func (s *StringSlice) unmarshalOrWrap(data []byte) error {
+	// Try parsing as array first
+	if err := json.Unmarshal(data, s); err == nil {
+		return nil
+	}
+
+	// If that fails, treat as single string
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*s = StringSlice{single}
+		return nil
+	}
+
+	// Give up, set empty
+	*s = StringSlice{}
 	return nil
 }
 
@@ -71,22 +95,34 @@ type DiscogsListing struct {
 }
 
 type KnapsackItem struct {
-	DiscogsID      string   `json:"discogs_id"`
-	Artist         string   `json:"artist"`
-	Title          string   `json:"title"`
-	Price          float64  `json:"price"`
-	Currency       string   `json:"currency"`
-	MediaCondition string   `json:"media_condition"`
-	Seller         string   `json:"seller"`
-	Label          string   `json:"label"`
-	Catno          string   `json:"catno"`
-	Wants          int      `json:"wants"`
-	Haves          int      `json:"haves"`
-	SuggestedPrice *float64 `json:"suggested_price"`
-	Genres         []string `json:"genres"`
-	Styles         []string `json:"styles"`
-	Year           *int     `json:"year"`
-	Score          float64  `json:"score"`
+	DiscogsID      int            `json:"discogs_id"`
+	Artist         string         `json:"artist"`
+	Title          string         `json:"title"`
+	Price          float64        `json:"price"`
+	Currency       string         `json:"currency"`
+	MediaCondition string         `json:"media_condition"`
+	Seller         string         `json:"seller"`
+	Label          string         `json:"label"`
+	Catno          string         `json:"catno"`
+	Wants          int            `json:"wants"`
+	Haves          int            `json:"haves"`
+	SuggestedPrice *float64       `json:"suggested_price"`
+	Genres         pq.StringArray `json:"genres" gorm:"type:text[]"`
+	Styles         pq.StringArray `json:"styles" gorm:"type:text[]"`
+	Year           *int           `json:"year"`
+	Score          float64        `json:"score"`
+}
+
+type RankingSession struct {
+	ID         uint          `gorm:"primaryKey"`
+	ListingIDs pq.Int64Array `gorm:"type:integer[]"`
+	Completed  bool          `gorm:"default:false"`
+}
+
+type RankingBatch struct {
+	SessionID  uint
+	BatchIndex int
+	Ranking    pq.Int64Array `gorm:"type:integer[]"`
 }
 
 type SellerKnapsack struct {
@@ -99,12 +135,18 @@ type SellerKnapsack struct {
 }
 
 type KnapsackRequest struct {
+	Seller string  `json:"seller"`
 	Budget float64 `json:"budget"`
 }
 
 type KnapsackResponse struct {
-	Knapsacks []SellerKnapsack `json:"knapsacks"`
-	Budget    float64          `json:"budget"`
+	Budget        float64        `json:"budget"`
+	Seller        string         `json:"seller"`
+	Knapsack      []KnapsackItem `json:"knapsack"`
+	Contenders    []KnapsackItem `json:"contenders"`
+	TotalSelected int            `json:"total_selected"`
+	TotalCost     float64        `json:"total_cost"`
+	TotalScore    float64        `json:"total_score"`
 }
 
 type KnapsackWeights struct {
@@ -186,6 +228,7 @@ type EbayListing struct {
 	Genre           string
 	Style           string
 	Keeper          bool `gorm:"default:false"`
+	Evaluated       bool `gorm:"default:false"`
 }
 
 type User struct {

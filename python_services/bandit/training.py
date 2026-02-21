@@ -1,4 +1,3 @@
-import os
 import torch
 import numpy as np
 import pickle
@@ -7,6 +6,7 @@ import mlflow
 
 from django.utils import timezone
 from django.db.models import F
+from django.conf import settings
 
 from .models import Record, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig
 from .features import RecordFeatureExtractor
@@ -16,6 +16,10 @@ from .triplet_generation import generate_triplets, generate_triplets_from_batch
 
 class BanditTrainer:
     def __init__(self):
+        project_root = settings.BASE_DIR
+        tracking_uri = f"file://{project_root}/mlruns"
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("discogs-bandit-model")
         self.feature_extractor = None
         self.model = None 
         self.training_history = []
@@ -44,6 +48,10 @@ class BanditTrainer:
             records.append(record_dict)
             labels.append(record.wanted)  # The evaluation decision
         
+        print(f"Training targets sample: {labels[:10]}")
+        print(f"Training targets type: {type(labels[0])}")
+        print(f"Unique values: {set(labels)}")
+        
         return records, labels
     
     def train_new_model(self, epochs=100, batch_size=32, learning_rate=0.01):
@@ -51,10 +59,9 @@ class BanditTrainer:
         print("🚀 Starting new model training")
         print("=" * 60)
 
-        mlflow.set_tracking_uri('file:///Users/benjamincaulfield/Documents/flic-a-disc/python_services/mlruns')        
         mlflow.set_experiment("discogs-bandit-model")
 
-        with mlflow.start_run(run_name="focal loss"):
+        with mlflow.start_run(run_name="initial_training"):
             mlflow.log_params({
                 "epochs": epochs,
                 "batch_size": batch_size,
@@ -64,8 +71,10 @@ class BanditTrainer:
             })
         
             records, labels = self.prepare_training_data()
+            mlflow.log_param("num_training_samples", len(records))
+            mlflow.log_param("num_keepers", sum(labels))
             print(f"📊 Loaded {len(records)} records ({sum(labels)} keepers, {len(labels) - sum(labels)} non-keepers)")
-            
+        
             self.feature_extractor = RecordFeatureExtractor(
                 artist_vocab_size=1000,
                 label_vocab_size=500,
@@ -129,39 +138,24 @@ class BanditTrainer:
             # Train with contrastive + supervised learning
             print(f"\n🎯 Starting training for {epochs} epochs...")
             print("-" * 60)
-            
-            try: 
-                history = self.model.fit(
-                    feature_extractor=self.feature_extractor,
-                    training_records=records,
-                    labels=labels,
-                    triplet_records=triplet_data,
-                    epochs=epochs,
-                    batch_size=batch_size,
-                    learning_rate=learning_rate
-                )
+    
+            history = self.model.fit(
+                feature_extractor=self.feature_extractor,
+                training_records=records,
+                labels=labels,
+                triplet_records=triplet_data,
+                epochs=epochs,
+                batch_size=batch_size,
+                learning_rate=learning_rate
+            )
 
-
-            except Exception as e:
-                import traceback
-                print("=" * 60)
-                print("FULL TRACEBACK:")
-                print(traceback.format_exc())
-                print("=" * 60)
-                raise
-            
             for epoch in range(len(history['val_accuracy'])):
-                metrics = {
+                mlflow.log_metrics({
                     "val_accuracy": history['val_accuracy'][epoch],
-                    "val_loss": history['val_loss'][epoch]
-                }
-                
-                if 'train_accuracy' in history and len(history['train_accuracy']) > epoch:
-                    metrics["train_accuracy"] = history['train_accuracy'][epoch]
-                if 'train_loss' in history and len(history['train_loss']) > epoch:
-                    metrics["train_loss"] = history['train_loss'][epoch]
-                
-                mlflow.log_metrics(metrics, step=epoch)
+                    "val_loss": history['val_loss'][epoch],
+                    "train_accuracy": history['train_accuracy'][epoch],
+                    "train_loss": history['train_loss'][epoch]
+                }, step=epoch)
 
             mlflow.log_metrics({
                 "final_val_accuracy": history['val_accuracy'][-1],
@@ -169,17 +163,12 @@ class BanditTrainer:
             })
 
             mlflow.pytorch.log_model(self.model, "bandit_model")
+            print(f"✅ Training complete! Logged to MLflow")
         
-            print("-" * 60)
-            print(f"✅ Training complete!")
-            print(f"📈 Final validation accuracy: {history['val_accuracy'][-1]:.2%}")
-            print(f"📉 Final validation loss: {history['val_loss'][-1]:.4f}")
-            
-            print("\n💾 Saving model to database...")
             self.save_model_to_db(history)
             print("✅ Model saved successfully!")
             print("=" * 60)
-            
+        
             return history
         
     def record_to_dict(self, record):
@@ -196,27 +185,29 @@ class BanditTrainer:
     
     def update_model_online(self, instances):
         if not self.model or not self.feature_extractor: return self.train_new_model()
-        mlflow.set_tracking_uri('file:///Users/benjamincaulfield/Documents/flic-a-disc/python_services/mlruns')        
+        
         mlflow.set_experiment("discogs-bandit-model")
+        with mlflow.start_run(run_name=f"batch_update", nested=True):
         
-        threshold_config = ThresholdConfig.objects.first()
-        threshold = threshold_config.threshold if threshold_config else 0.5
-        
-        try:
-            old_model = BanditModelDB.objects.get(is_active=True)
-            batch_num = old_model.batch_count + 1
-        except BanditModelDB.DoesNotExist:
-            batch_num = 1
-        
-        with mlflow.start_run(run_name=f"batch_{batch_num}"):
-
+            threshold_config = ThresholdConfig.objects.first()
+            threshold = threshold_config.threshold if threshold_config else 0.5
+            
+            # Get current batch count for tagging
+            try:
+                old_model = BanditModelDB.objects.get(is_active=True)
+                batch_num = old_model.batch_count + 1
+            except BanditModelDB.DoesNotExist:
+                batch_num = 1
+            
+            # Log batch info
             mlflow.log_params({
                 "batch_number": batch_num,
-                "num_instances": len(instances),
+                "batch_size": len(instances),
                 "learning_rate": 0.0001,
                 "num_epochs": 10
             })
-
+        
+        
             records = []
             labels = []
             record_ids = []
@@ -256,7 +247,7 @@ class BanditTrainer:
             keeper_history = []
             non_keeper_history = []
 
-            historical_records = Record.objects.filter(evaluated=True)[:500]
+            historical_records = Record.objects.filter(evaluated=True)
             
             for record in historical_records:  
                 record_dict = self.record_to_dict(record)  
@@ -269,7 +260,9 @@ class BanditTrainer:
                 current_batch=records,
                 current_labels=labels,
                 keeper_history=keeper_history,
-                non_keeper_history=non_keeper_history
+                non_keeper_history=non_keeper_history,
+                num_triplets_per_keeper=10,
+                hard_mining_ratio=0.5
             )
 
             # Extract triplet features if available
@@ -290,8 +283,8 @@ class BanditTrainer:
             optimizer = torch.optim.Adam(self.model.parameters(), lr=0.0001)
             
             self.model.train()
-            total_losses = {'total': 0, 'classification': 0, 'triplet': 0, 'uncertainty': 0}
-        
+            batch_losses = []
+
             # Multiple passes over the new data
             print(f"🔄 Running 10 training epochs...")
 
@@ -305,57 +298,53 @@ class BanditTrainer:
                 losses['total'].backward()
                 optimizer.step()
 
-                for key in total_losses:
-                    total_losses[key] += losses[key].item()
+                batch_losses.append(losses['total'].item())
+                
+                mlflow.log_metrics({
+                    "total_loss": losses['total'].item(),
+                    "classification_loss": losses['classification'].item(),
+                    "triplet_loss": losses['triplet'].item()
+                }, step=epoch)
 
-                if epoch % 3 == 0:
-                    print(f"  Epoch {epoch}: total={losses['total'].item():.4f}, "
-                        f"classification={losses['classification'].item():.4f}, "
-                        f"triplet={losses['triplet'].item():.4f}")
-        
-            avg_total_loss = total_losses['total'] / 10
-                        
+            
+    
+            avg_total_loss = sum(batch_losses) / len(batch_losses)
+                      
             self.model.eval()
             with torch.no_grad():
                 mean_pred, _ = self.model.forward(features)
                 predictions = (mean_pred > 0.5).float()
                 accuracy = (predictions == labels).float().mean().item()
-                print(f"📈 Training accuracy on this batch: {accuracy*100:.1f}%") 
-
-            mlflow.log_metrics({
-                "batch_accuracy": accuracy,
-                "instances_processed": len(records)
-            })       
+                print(f"📈 Training accuracy on this batch: {accuracy*100:.1f}%")        
+                
+                if batch_num % 5 == 0:
+                    mlflow.pytorch.log_model(self.model, f"bandit_model_batch_{batch_num}")
+                # Store training instances in database for record keeping
+                for i, instance in enumerate(instances):  # ✅ Use enumerate to get index
+                    try:
+                        if i >= len(record_ids):  # ✅ Safety check
+                            continue
+                
+                        record_id = record_ids[i]  # ✅ Get from our list
+                        predicted_prob = float(instance['predicted'])
+                        predicted_bool = predicted_prob >= threshold 
+                        uncertainty = instance_uncertainties.get(instance['id'])
+                                    
+                        BanditTrainingInstance.objects.create(
+                            record_id=record_id,
+                            context=json.dumps(instance.get('context', {})),
+                            predicted=predicted_bool,
+                            predicted_prob=predicted_prob,
+                            predicted_uncertainty=uncertainty,
+                            actual=instance['actual'],
+                            reward=1.0 if instance['predicted'] == instance['actual'] else -1.0
+                        )
+                    except Exception as e:
+                        print(f"Warning: Could not save training instance: {e}")
             
-            # Store training instances in database for record keeping
-            for i, instance in enumerate(instances):  # ✅ Use enumerate to get index
-                try:
-                    if i >= len(record_ids):  # ✅ Safety check
-                        continue
-            
-                    record_id = record_ids[i]  # ✅ Get from our list
-                    predicted_prob = float(instance['predicted'])
-                    predicted_bool = predicted_prob >= threshold 
-                    uncertainty = instance_uncertainties.get(instance['id'])
-                                
-                    BanditTrainingInstance.objects.create(
-                        record_id=record_id,
-                        context=json.dumps(instance.get('context', {})),
-                        predicted=predicted_bool,
-                        predicted_prob=predicted_prob,
-                        predicted_uncertainty=uncertainty,
-                        actual=instance['actual'],
-                        reward=1.0 if instance['predicted'] == instance['actual'] else -1.0
-                    )
-                except Exception as e:
-                    print(f"Warning: Could not save training instance: {e}")
-            
-            if batch_num % 5 == 0:
-                mlflow.pytorch.log_model(self.model, f"model_batch_{batch_num}")
-            
-            # Update model in database (simple approach: just save new version)
-            self.save_model_to_db({'online_update_loss': avg_total_loss})
-            BanditModelDB.objects.filter(is_active=True).update(batch_count=F('batch_count') + 1)        
+                # Update model in database (simple approach: just save new version)
+                self.save_model_to_db({'online_update_loss': avg_total_loss})
+                BanditModelDB.objects.filter(is_active=True).update(batch_count=F('batch_count') + 1)        
 
             
             return {
@@ -400,11 +389,19 @@ class BanditTrainer:
     
     def load_latest_model(self):
         try:
+            active_models = BanditModelDB.objects.filter(is_active=True)
+            print(f"Active models count: {active_models.count()}")
+            print(f"Active models: {list(active_models.values_list('id', flat=True))}")
+        
             latest_model = BanditModelDB.objects.filter(is_active=True).latest('created_at')
-            
+            print(f"Found model: {latest_model.id}")
+
             model_data = pickle.loads(latest_model.model_weights)
-            
+            print(f"Pickle loaded, keys: {model_data.keys()}")
+
             self.feature_extractor = model_data['feature_extractor']
+            print(f"Feature extractor loaded: {self.feature_extractor}")
+
             
             vocab_sizes = model_data['vocab_sizes']
             embedding_dims = model_data['embedding_dims']
@@ -440,6 +437,6 @@ class BanditTrainer:
             print(f"Loaded model version {latest_model.version}")
             return True
             
-        except BanditModelDB.DoesNotExist:
-            print("No trained model found in database")
+        except Exception as e:
+            print(f"Error loading model: {type(e).__name__}: {e}")
             return False
