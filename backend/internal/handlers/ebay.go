@@ -35,10 +35,7 @@ func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
 	return h
 }
 
-func (h *EbayHandler) fetchAndCacheListings() {
-	log.Println("Fetching eBay auctions ending in next 24-48 hours...")
-	log.Println("🚀 fetchAndCacheListings() CALLED")
-
+func (h *EbayHandler) fetchAndCacheAuctions() {
 	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(48)
 	if err != nil {
 		log.Printf("Failed to fetch listings: %v", err)
@@ -95,7 +92,6 @@ func (h *EbayHandler) fetchAndCacheListings() {
 	log.Printf("✅ Cached %d filtered listings in memory", len(filteredListings))
 }
 
-// ✅ New helper function to call Python filter
 func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 	mlURL := os.Getenv("ML_SERVICE_URL")
 	if mlURL == "" {
@@ -129,35 +125,23 @@ func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
 	return result.TopListings, nil
 }
 
-func (h *EbayHandler) TriggerFetch(c *gin.Context) {
-	log.Printf("🔵 TriggerFetch: Request received from %s", c.ClientIP())
-
+func (h *EbayHandler) TriggerFetchAuctions(c *gin.Context) {
 	h.mu.Lock()
-	log.Printf("🔵 TriggerFetch: Lock acquired, fetchInProgress=%v", h.fetchInProgress)
 
 	if h.fetchInProgress {
 		h.mu.Unlock()
-		log.Printf("🔴 TriggerFetch: REJECTED - fetch already in progress")
 		c.JSON(409, gin.H{"message": "Fetch already in progress"})
 		return
 	}
 
 	h.fetchInProgress = true
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=true, releasing lock")
 	h.mu.Unlock()
-
-	log.Printf("🟢 TriggerFetch: Starting fetchAndCacheListings()")
-	h.fetchAndCacheListings()
-	log.Printf("🟢 TriggerFetch: fetchAndCacheListings() completed")
-
+	h.fetchAndCacheAuctions()
 	h.mu.Lock()
 	h.fetchInProgress = false
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=false")
 	h.mu.Unlock()
 
-	log.Printf("🟢 TriggerFetch: Sending 200 response")
 	c.JSON(200, gin.H{"message": "Fetch complete"})
-	log.Printf("🟢 TriggerFetch: Response sent, exiting")
 }
 
 func (h *EbayHandler) GetCachedListings(c *gin.Context) {
