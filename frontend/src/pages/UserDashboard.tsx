@@ -239,6 +239,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     { id: 'discogs_seller_trigger', label: 'discogs seller trigger', path: '/discogs/seller-trigger' },
     { id: 'discogs_scraper_trigger', label: 'discogs scraper trigger', path: '/discogs/scraper-trigger' },
     { id: 'discogs_inventory_view', label: 'discogs inventory', path: '/discogs/inventory-view' },
+    { id: 'discogs_knapsack', label: 'discogs knapsack', path: '/discogs/knapsack' },
     { id: 'trading_platoform_simulator', label: 'trading platform simulator', path: '/trading/simulator' },
     { id: 'wfmu_playlist_parser', label: 'wfmu playlist parser', path: '/wfmu/playlist-parser' },
     { id: 'ebay_auctions', label: 'ebay auctions', path: '/ebay/auctions' },
