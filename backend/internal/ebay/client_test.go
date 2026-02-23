@@ -63,7 +63,7 @@ func TestBuyItNowToCSV(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	file, _ := os.Create("buyitnow_test44.csv")
+	file, _ := os.Create("new_arrivals.csv")
 	defer file.Close()
 
 	writer := csv.NewWriter(file)
