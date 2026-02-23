@@ -29,8 +29,14 @@ class Command(BaseCommand):
 
         vectorizer = TitleVectorizer(max_features=1000)
         vectorizer.fit(titles)
+        keeper_embeddings = vectorizer.vectorizer.transform(titles)
+
+        model_data = {
+            'vectorizer': vectorizer,
+            'keeper_embeddings': keeper_embeddings
+        }
         
-        weights = pickle.dumps(vectorizer)
+        weights = pickle.dumps(model_data)
         
         version = f"v{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         tfidf_model = TfIdfDB.objects.create(

@@ -645,9 +645,7 @@ def rebuild_tfidf_vocab(request):
 @api_view(['POST'])
 def ebay_title_similarity_filter(request):
     listings = request.data.get('listings', [])
-    print(listings)
     top_n = request.data.get('top_n', 500)
-    print(top_n)
     if not listings: return Response({'error': 'no listings'}, status=400)
     
     try:

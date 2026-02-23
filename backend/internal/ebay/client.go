@@ -109,7 +109,7 @@ func (c *Client) SearchBuyItNow() ([]ItemSummary, error) {
 
 	const (
 		limit     = 200
-		maxItems  = 1000
+		maxItems  = 500
 		sleepTime = 200 * time.Millisecond
 	)
 
