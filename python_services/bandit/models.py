@@ -161,3 +161,12 @@ class KnapsackWeights(models.Model):
     demand = models.FloatField(default=0.34)
     updated_at = models.DateTimeField(auto_now=True)
 
+class KnapsackSession(models.Model):
+    seller_name = models.CharField(max_length=255)
+    budget = models.FloatField()
+    total_cost = models.FloatField()
+    total_score = models.FloatField()
+    selected_count = models.IntegerField()
+    selected_items = models.JSONField()  # Store full item details
+    contenders = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)

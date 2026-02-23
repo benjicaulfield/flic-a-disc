@@ -963,6 +963,9 @@ def tune_weights(request):
 def discogs_knapsack(request):
     seller = request.data.get("seller")
     budget = request.data.get("budget", 0)
+
+    if not seller:
+        return Response({"error": "seller is required"}, status=400)
     inventory = get_inventory(seller)
     
     scored_inventory = score_and_filter_seller_listings(inventory)
