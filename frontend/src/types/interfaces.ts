@@ -38,6 +38,7 @@ export interface BasicEbayAuction {
   end_date: string;
   keeper: boolean;
   evaluated: boolean;
+  tfidf_score?: number;
 }
 
 export interface BasicEbayBuyItNow {

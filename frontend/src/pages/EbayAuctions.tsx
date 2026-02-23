@@ -111,6 +111,7 @@ const EbayAuctions = () => {
                 <tr>
                   <th className="px-2 py-2 text-left font-semibold text-gray-700 border-r border-gray-200">Title</th>
                   <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Price</th>
+                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Score</th>
                   <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20 border-r border-gray-200">Keep</th>
                 </tr>
               </thead>
@@ -133,6 +134,10 @@ const EbayAuctions = () => {
 
                       <td className="px-2 py-1.5 border-r border-gray-200">
                         ${auction.current_bid || '0.00'}
+                      </td>
+
+                      <td className="px-2 py-1.5 border-r border-gray-200">
+                        {auction.tfidf_score != null ? auction.tfidf_score.toFixed(3) : '—'}
                       </td>
 
                       <td className="px-2 py-1.5 text-center border-r border-gray-200">

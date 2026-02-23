@@ -16,7 +16,7 @@ def normalize_title(text):
     text = text.lower()
     text = re.sub(r'[^a-z0-9\s]', ' ', text)
     words = text.split()
-    filtered = set([word for word in words if word not in STOP_WORDS and len(word) > 1])
+    filtered = [word for word in words if word not in STOP_WORDS and len(word) > 1]
     return ' '.join(filtered)
 
 def create_mock_ebay_title(discogs_record):

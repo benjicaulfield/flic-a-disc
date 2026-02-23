@@ -2,12 +2,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 import numpy as np
 
 class TitleVectorizer:
-    def __init__(self, max_features=1000):
+    def __init__(self, max_features=10000):
         self.vectorizer = TfidfVectorizer(
             max_features=max_features,
             lowercase=False,
             token_pattern=r'\b\w+\b',
-            min_df = 2,
+            min_df = 1,
             max_df = 0.95,
         )
         self.fitted = False

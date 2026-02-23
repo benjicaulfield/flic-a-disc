@@ -658,6 +658,7 @@ def ebay_title_similarity_filter(request):
     
     ebay_titles = []
     ebay_ids = []
+    filtered_listings = []
 
     for listing in listings:
         title = listing.get('ebay_title', '')
@@ -666,6 +667,7 @@ def ebay_title_similarity_filter(request):
         if normalized and ebay_id:
             ebay_titles.append(normalized)
             ebay_ids.append(ebay_id)
+            filtered_listings.append(listing)
     
     if not ebay_titles:
         return Response({'results': [], 'total': 0, 'message': 'No unevaluated listings'})
@@ -675,12 +677,15 @@ def ebay_title_similarity_filter(request):
     final_scores = keeper_similarities.max(axis=1)
 
     sorted_items = sorted(
-        zip(listings, final_scores),
+        zip(filtered_listings, final_scores),
         key=lambda x: x[1],
         reverse=True
     )[:top_n]
     
-    top_listings = [item for item, _ in sorted_items]
+    top_listings = [
+        {**item, 'tfidf_score': float(score)}
+        for item, score in sorted_items
+    ]
     random.shuffle(top_listings)
     
     return Response({'top_listings': top_listings})
