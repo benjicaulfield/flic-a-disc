@@ -10,7 +10,7 @@ class NeuralContextualBandit(nn.Module):
                  hidden_dims = [128, 64, 32], 
                  embedding_dim = 64,
                  tfidf_dim = 1000,
-                 dropout_rate = 0.4):
+                 dropout_rate = 0.2):
         super().__init__()
         
         self.tfidf_dim = tfidf_dim

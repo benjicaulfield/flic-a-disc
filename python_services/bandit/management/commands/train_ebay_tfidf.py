@@ -19,7 +19,9 @@ class Command(BaseCommand):
                 'artist': record.artist,
                 'title': record.title,
                 'label': record.label,
-                'year': record.year
+                'year': record.year,
+                'genres': record.genres or [],
+                'styles': record.styles or []
             }
             title = create_mock_ebay_title(record_dict)
             if title:

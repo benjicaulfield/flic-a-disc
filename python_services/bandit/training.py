@@ -54,7 +54,7 @@ class BanditTrainer:
         
         return records, labels
     
-    def train_new_model(self, epochs=100, batch_size=32, learning_rate=0.01):
+    def train_new_model(self, epochs=100, batch_size=32, learning_rate=0.01, use_tfidf=True):
         print("=" * 60)
         print("🚀 Starting new model training")
         print("=" * 60)
@@ -67,7 +67,8 @@ class BanditTrainer:
                 "batch_size": batch_size,
                 "learning_rate": learning_rate,
                 "hidden_dims": [128, 64, 32],
-                "dropout_rate": 0.2
+                "dropout_rate": 0.2,
+                "use_tfidf": use_tfidf
             })
         
             records, labels = self.prepare_training_data()
@@ -109,7 +110,7 @@ class BanditTrainer:
                 embedding_dims=embedding_dims_converted,
                 hidden_dims=[128, 64, 32],
                 embedding_dim=64,
-                tfidf_dim=len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_), 
+                tfidf_dim=len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_) if self.feature_extractor.use_tfidf else 0, 
                 dropout_rate=0.2
             )
             print(f"✅ Model created with {sum(p.numel() for p in self.model.parameters())} parameters")
@@ -405,7 +406,7 @@ class BanditTrainer:
             
             vocab_sizes = model_data['vocab_sizes']
             embedding_dims = model_data['embedding_dims']
-            actual_tfidf_dim = len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_)
+            actual_tfidf_dim = len(self.feature_extractor.title_vectorizer.vectorizer.vocabulary_) if self.feature_extractor.use_tfidf else 0
 
             
             # CONVERT KEY NAMES (same as in train_new_model)

@@ -14,12 +14,14 @@ class RecordFeatureExtractor:
                  genre_vocab_size = 100,
                  style_vocab_size = 200,
                  embedding_dims = None,
-                 title_tfidf_features=1000):
+                 title_tfidf_features=1000,
+                 use_tfidf=True):
         
         self.artist_vocab_size = artist_vocab_size
         self.label_vocab_size = label_vocab_size
         self.genre_vocab_size = genre_vocab_size
         self.style_vocab_size = style_vocab_size
+        self.use_tfidf = use_tfidf
 
         self.embedding_dims = embedding_dims or {
             'artist': 64,
@@ -28,8 +30,8 @@ class RecordFeatureExtractor:
             'style': 16
         }
 
-        self.title_vectorizer = TitleVectorizer(max_features = title_tfidf_features)
-        self.title_tfidf_features = title_tfidf_features
+        self.title_vectorizer = TitleVectorizer(max_features = title_tfidf_features) if use_tfidf else 0
+        self.title_tfidf_features = title_tfidf_features if use_tfidf else 0
 
         self.numerical_scaler = MinMaxScaler()
         self.price_scaler = MinMaxScaler()
@@ -298,7 +300,7 @@ class RecordFeatureExtractor:
             self.min_year = 1950
             self.max_year = 2025
 
-        if normalized_titles:
+        if self.use_tfidf and normalized_titles:
             print(f"\nFitting TF-IDF on {len(normalized_titles)} titles...")
             self.title_vectorizer.fit(normalized_titles)
 
@@ -338,7 +340,10 @@ class RecordFeatureExtractor:
         else:
             norm_title = create_mock_ebay_title(record)
         
-        title_tfidf = self.title_vectorizer.transform(norm_title).flatten()
+        if self.use_tfidf:
+            title_tfidf = self.title_vectorizer.transform(norm_title).flatten()
+            features.extend(title_tfidf)
+
         # Try to make it a flat array
         if hasattr(title_tfidf, 'flatten'):
             title_tfidf = title_tfidf.flatten()

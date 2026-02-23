@@ -24,17 +24,24 @@ class Command(BaseCommand):
             default=0.001,
             help='Learning rate (default: 0.001)'
         )
+        parser.add_argument(
+            '--no-tfidf',
+            action='store_true',
+            help='Train without tfidf features'
+        )
 
     def handle(self, *args, **options):
         epochs = options['epochs']
         batch_size = options['batch_size']
         learning_rate = options['learning_rate']
+        use_tfidf = not options['no_tfidf']
         
         self.stdout.write(self.style.SUCCESS(
             f'\nTraining new model with:\n'
             f'  Epochs: {epochs}\n'
             f'  Batch size: {batch_size}\n'
             f'  Learning rate: {learning_rate}\n'
+            f'  TF-IDF: {use_tfidf}'
         ))
         
         trainer = BanditTrainer()
@@ -43,7 +50,8 @@ class Command(BaseCommand):
             history = trainer.train_new_model(
                 epochs=epochs,
                 batch_size=batch_size,
-                learning_rate=learning_rate
+                learning_rate=learning_rate,
+                use_tfidf=use_tfidf
             )
             
             self.stdout.write(self.style.SUCCESS(
