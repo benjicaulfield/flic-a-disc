@@ -128,19 +128,22 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     setEditText('');
   };
 
-  const handleDeleteTodo = async (id: number) => {
-    try {
-      const response = await apiFetch(`/api/todos/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-      });
-      if (response.ok) {
-        setTodos(todos.filter(todo => todo.id !== id));
-      }
-    } catch (err) {
-      console.error('Failed to delete todo:', err);
+  const handleMarkDone = async (id: number) => {
+  try {
+    const response = await apiFetch(`/api/todos/${id}`, {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'done' })
+    });
+    if (response.ok) {
+      const updatedTodo = await response.json();
+      setTodos(todos.map(todo => todo.id === id ? updatedTodo : todo));
     }
-  };
+  } catch (err) {
+    console.error('Failed to mark todo as done:', err);
+  }
+};
 
   const inProgressTodos = todos.filter(t => t.status === 'in-progress');
   const backlogTodos = todos.filter(t => t.status === 'backlog');
@@ -255,7 +258,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
         </div>
       )}
       <button
-        onClick={() => handleDeleteTodo(todo.id)}
+        onClick={() => handleMarkDone(todo.id)}
         className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
       >
         ✓
