@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Login } from '../../components/Login';
-import type { LandingPageProps, DiscogsRecord } from '../../types/interfaces';
+import type { LandingPageProps, DiscogsRecord, TodoItem } from '../../types/interfaces';
 import './landing.css';
-import { mlFetch } from '../../api/client';
+import { mlFetch, apiFetch } from '../../api/client';
 
 interface Stats {
   discogs: {
@@ -34,6 +34,7 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
   const [stats, setStats] = useState<Stats | null>(null);
   const [statsLoading, setStatsLoading] = useState<boolean>(true);
   const [statsError, setStatsError] = useState<string | null>(null);
+  const [recentDone, setRecentDone] = useState<TodoItem[]>([]);
 
   useEffect(() => {
     const fetchRecordOfTheDay = async () => {
@@ -73,8 +74,27 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
       }
     };
 
+    const fetchRecentDone = async () => {
+      try {
+        const response = await apiFetch('api/todos', { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          const done = data
+            .filter((t: TodoItem) => t.status === 'done')
+            .sort((a: TodoItem, b: TodoItem) =>
+              new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+            )
+            .slice(0, 5);
+          setRecentDone(done);
+        } 
+      } catch (err) {
+        console.error("failed to fetch recent dones", err);
+      }
+    };
+
     fetchRecordOfTheDay();
     fetchStats();
+    fetchRecentDone();
   }, []);
 
   return (
@@ -202,6 +222,24 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
                     <p><strong>Avg Accuracy:</strong> {stats.model.avg_accuracy ? `${(stats.model.avg_accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
                   </div>
                 </div>
+              )}
+            </div>
+          </div>
+          {/* Recently Completed */}
+          <div className="section">
+            <div className="section-header">RECENTLY COMPLETED</div>
+            <div className="section-content">
+              {recentDone.length === 0 ? (
+                <p>Nothing completed yet.</p>
+              ) : (
+                recentDone.map(todo => (
+                  <div key={todo.id} style={{ marginBottom: '6px' }}>
+                    <span>✓ {todo.text}</span>
+                    <span style={{ marginLeft: '8px', opacity: 0.6, fontSize: '0.85em' }}>
+                      {new Date(todo.updated_at).toLocaleDateString()}
+                    </span>
+                  </div>
+                ))
               )}
             </div>
           </div>

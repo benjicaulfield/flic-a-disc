@@ -23,6 +23,9 @@ class RecordFeatureExtractor:
         self.style_vocab_size = style_vocab_size
         self.use_tfidf = use_tfidf
 
+        self.artist_to_idx = {}
+        self.label_to_idx = {}
+
         self.embedding_dims = embedding_dims or {
             'artist': 64,
             'label': 32,
@@ -48,6 +51,16 @@ class RecordFeatureExtractor:
             'style': self.style_vocab_size
         }
     
+    def _get_artist_index(self, artist):
+        if not artist or not isinstance(artist, str):
+            return 0
+        return self.artist_to_idx.get(artist, 0)
+
+    def _get_label_index(self, label):
+        if not label or not isinstance(label, str):
+            return 0
+        return self.label_to_idx.get(label, 0)
+    
     def get_embedding_dims(self):
         return self.embedding_dims.copy()
     
@@ -72,7 +85,9 @@ class RecordFeatureExtractor:
             'price_scaler': self.price_scaler,
             'min_year': self.min_year,
             'max_year': self.max_year,
-            'is_fitted': self.is_fitted
+            'is_fitted': self.is_fitted,
+            'artist_to_index': self.artist_to_idx,
+            'label_to_index': self.label_to_idx,
         }
 
         with open(filepath, 'wb') as f:
@@ -87,6 +102,10 @@ class RecordFeatureExtractor:
         self.min_year = state['min_year']
         self.max_year = state['max_year']
         self.is_fitted = state['is_fitted']
+        self.artist_to_idx = state.get('artist_to_idx', {})
+        self.label_to_idx = state.get('label_to_idx', {})
+        self.artist_vocab_size = len(self.artist_to_idx) + 1
+        self.label_vocab_size = len(self.label_to_idx) + 1
 
         if state['vocab_sizes'] != self.get_vocab_sizes():
             raise ValueError("Loaded vocab sizes don't match current configuration")
@@ -104,13 +123,6 @@ class RecordFeatureExtractor:
         vocab_index = (hash_integer % (vocab_size - 1)) + 1
 
         return vocab_index 
-    
-    def _get_artist_index(self, artist):
-        return self._hash_to_index(artist, self.artist_vocab_size)
-    
-    def _get_label_index(self, label: str) -> int:
-        """Get vocabulary index for label"""
-        return self._hash_to_index(label, self.label_vocab_size)
     
     def _get_genre_indices(self, genres, max_genres):
         """Get vocabulary indices for genres (up to max_genres)"""
@@ -270,6 +282,9 @@ class RecordFeatureExtractor:
         years = []
         normalized_titles = []
 
+        artists = []
+        labels = []
+
         for record in records:
             wants = record.get('wants', 0)
             haves = record.get('haves', 0)
@@ -288,6 +303,14 @@ class RecordFeatureExtractor:
                 norm_title = create_mock_ebay_title(record)
             if norm_title: 
                 normalized_titles.append(norm_title)
+
+            if record.get('artist'): artists.append(record['artist'])
+            if record.get('label'): labels.append(record['label'])
+
+            self.artist_to_idx = {a: i+1 for i, a in enumerate(sorted(set(artists)))}
+            self.label_to_idx = {l: i+1 for i, l in enumerate(sorted(set(labels)))}
+            self.artist_vocab_size = len(self.artist_to_idx) + 1
+            self.label_vocab_size = len(self.label_to_idx) + 1
 
         if numerical_features:
             self.numerical_scaler.fit(numerical_features)

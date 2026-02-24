@@ -231,6 +231,16 @@ type EbayListing struct {
 	Evaluated       bool `gorm:"default:false"`
 }
 
+type Todo struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index;not null" json:"user_id"`
+	Text      string    `gorm:"not null" json:"text"`
+	Status    string    `gorm:"default:'backlog'" json:"status"`
+	Order     int       `gorm:"default:0" json:"order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 type User struct {
 	ID           uint      `json:"id"`
 	Username     string    `json:"username"`

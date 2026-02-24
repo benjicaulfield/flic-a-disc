@@ -47,8 +47,6 @@ export interface BasicEbayBuyItNow {
   listing_time: string;
 }
 
-
-
 export interface EbayListing {
   id: number;
   ebay_id: number;
@@ -70,6 +68,42 @@ export interface EbayListing {
   saved: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface UserDashboardProps {
+  onLogout: () => void;
+  tourMode?: boolean;
+
+}
+
+export interface PerformanceData {
+  batch_number: number;
+  accuracy: number;
+  correct: number;
+  total: number;
+}
+
+export interface StatsData {
+  total_records: number;
+  evaluated_records: number;
+  keeper_count: number;
+  keeper_rate: number;
+  discogs_accuracy: number;
+  ebay_accuracy: number;
+  model_version: string;
+  total_batches: number;
+  ebay_evaluated?: number;
+  ebay_total?: number;
+}
+
+export interface TodoItem {
+  id: number;
+  user_id: number;
+  text: string;
+  status: 'in-progress' | 'backlog' | 'done';
+  order: number;
+  updated_at: string;
+  created_at: string;
 }
 
 export interface DiscogsKeepersAPIResponse {

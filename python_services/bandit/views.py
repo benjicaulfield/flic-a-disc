@@ -26,6 +26,7 @@ from .bandit_selection import adaptive_batch_selection
 from .enhance_listings import LookupByID
 from .text_utils import create_mock_ebay_title, normalize_title
 from .title_vectorizer import TitleVectorizer
+from .utils.calculate_optimal_threshold import calculate_optimal_threshold
 from .utils.get_user_inventory import get_inventory
 from .discogs_client import authenticate_client
 
@@ -322,46 +323,7 @@ def receive_feedback(request):
         }
     })
 
-def calculate_optimal_threshold(window_size=500):
-    recent_instances = BanditTrainingInstance.objects.order_by('-timestamp')[:window_size]
 
-    if len(recent_instances) < 50:
-        return 0.5, 0.0
-    
-    predictions = []
-    actuals = []
-
-    for instance in recent_instances:
-        predictions.append(instance.predicted_prob)
-        actuals.append(1 if instance.actual else 0)
-
-    predictions = np.array(predictions)
-    actuals = np.array(actuals)
-
-    best_threshold = 0.5
-    best_f1 = 0
-
-    for threshold in np.arange(0.05, 0.95, 0.05):
-        pred_binary = (predictions > threshold).astype(int)
-        tp = ((pred_binary == 1) & (actuals == 1)).sum()
-        fp = ((pred_binary == 1) & (actuals == 0)).sum()
-        fn = ((pred_binary == 0) & (actuals == 1)).sum()
-        
-        precision = tp / (tp + fp) if (tp + fp) > 0 else 0
-        recall = tp / (tp + fn) if (tp + fn) > 0 else 0
-        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = threshold
-    
-    config, _ = ThresholdConfig.objects.get_or_create(id=1)
-    config.threshold = best_threshold
-    config.f1_score = best_f1
-    config.window_size = window_size
-    config.save()
-
-    return best_threshold, best_f1
 
 @api_view(['GET'])
 def optimize_threshold(request):
@@ -778,69 +740,6 @@ def performance_history(request):
             for b in reversed(list(batches))
         ]
     })
-
-@api_view(['GET', 'POST'])
-@permission_classes([AllowAny])
-def todos(request):
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'no user id'}, status=400)
-    
-    if request.method == 'GET':
-        user_todos = Todo.objects.filter(user_id = user_id)
-        return Response([{
-            'id': str(todo.id),
-            'text': todo.text,
-            'status': todo.status,
-            'order': todo.order
-        } for todo in user_todos])
-    
-    elif request.method == 'POST':
-        todo = Todo.objects.create(
-            user_id=user_id,
-            text=request.data['text'],
-            status=request.data.get('status', 'backlog'),
-            order=request.data.get('order', 0)
-        )
-        return Response({
-            'id': str(todo.id),
-            'text': todo.text,
-            'status': todo.status,
-            'order': todo.order
-        }, status=201)
-
-@api_view(['PATCH', 'DELETE'])
-@permission_classes([AllowAny])
-def todo_detail(request, todo_id):
-    user_id = request.headers.get('X-User-ID')
-    if not user_id:
-        return Response({'error': 'Missing user ID'}, status=400)
-    
-    try:
-        todo = Todo.objects.get(id=todo_id, user_id=user_id)
-    except Todo.DoesNotExist:
-        return Response({'error': 'Not found'}, status=404)
-    
-    if request.method == 'PATCH':
-        if 'text' in request.data:
-            todo.text = request.data['text']
-        if 'status' in request.data:
-            todo.status = request.data['status']
-        if 'order' in request.data:
-            todo.order = request.data['order']
-        todo.save()
-        return Response({
-            'id': str(todo.id),
-            'text': todo.text,
-            'status': todo.status,
-            'order': todo.order
-        })
-    
-    elif request.method == 'DELETE':
-        todo.delete()
-        return Response(status=204)
-    
-# In bandit/views.py, add:
 
 @api_view(['GET'])
 @permission_classes([AllowAny])

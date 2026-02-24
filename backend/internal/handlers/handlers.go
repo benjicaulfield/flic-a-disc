@@ -345,19 +345,12 @@ func (h *Handler) GetTodos(c *gin.Context) {
 		return
 	}
 
-	// Forward to Django with user_id header
-	req, _ := http.NewRequest("GET", h.getMLURL()+"/ml/todos/", nil)
-	req.Header.Set("X-User-ID", fmt.Sprint(userID))
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	var todos []models.Todo
+	if err := h.db.Where("user_id = ?", userID).Order("\"order\" asc").Find(&todos).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to fetch todos"})
 		return
 	}
-	defer resp.Body.Close()
 
-	var todos []map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&todos)
 	c.JSON(200, todos)
 }
 
@@ -368,24 +361,33 @@ func (h *Handler) CreateTodo(c *gin.Context) {
 		return
 	}
 
-	var body map[string]interface{}
-	c.BindJSON(&body)
+	var body struct {
+		Text   string `json:"text"`
+		Status string `json:"status"`
+		Order  int    `json:"order"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid body"})
+		return
+	}
 
-	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("POST", "http://localhost:8001/ml/todos/", bytes.NewBuffer(jsonBody))
-	req.Header.Set("X-User-ID", fmt.Sprint(userID))
-	req.Header.Set("Content-Type", "application/json")
+	if body.Status == "" {
+		body.Status = "backlog"
+	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	todo := models.Todo{
+		UserID: userID.(uint),
+		Text:   body.Text,
+		Status: body.Status,
+		Order:  body.Order,
+	}
+
+	if err := h.db.Create(&todo).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to create todo"})
 		return
 	}
-	defer resp.Body.Close()
 
-	var todo map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&todo)
-	c.JSON(resp.StatusCode, todo)
+	c.JSON(201, todo)
 }
 
 func (h *Handler) UpdateTodo(c *gin.Context) {
@@ -396,24 +398,40 @@ func (h *Handler) UpdateTodo(c *gin.Context) {
 	}
 
 	todoID := c.Param("id")
-	var body map[string]interface{}
-	c.BindJSON(&body)
 
-	jsonBody, _ := json.Marshal(body)
-	req, _ := http.NewRequest("PATCH", fmt.Sprintf("%s/ml/todos/%s/", h.getMLURL(), todoID), bytes.NewBuffer(jsonBody))
-	req.Header.Set("X-User-ID", fmt.Sprint(userID))
-	req.Header.Set("Content-Type", "application/json")
+	var body struct {
+		Text   *string `json:"text"`
+		Status *string `json:"status"`
+		Order  *int    `json:"order"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(400, gin.H{"error": "Invalid body"})
+		return
+	}
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	var todo models.Todo
+	if err := h.db.Where("id = ? AND user_id = ?", todoID, userID).First(&todo).Error; err != nil {
+		c.JSON(404, gin.H{"error": "Not found"})
+		return
+	}
+
+	updates := map[string]interface{}{}
+	if body.Text != nil {
+		updates["text"] = *body.Text
+	}
+	if body.Status != nil {
+		updates["status"] = *body.Status
+	}
+	if body.Order != nil {
+		updates["order"] = *body.Order
+	}
+
+	if err := h.db.Model(&todo).Updates(updates).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to update todo"})
 		return
 	}
-	defer resp.Body.Close()
 
-	var todo map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&todo)
-	c.JSON(resp.StatusCode, todo)
+	c.JSON(200, todo)
 }
 
 func (h *Handler) DeleteTodo(c *gin.Context) {
@@ -424,17 +442,13 @@ func (h *Handler) DeleteTodo(c *gin.Context) {
 	}
 
 	todoID := c.Param("id")
-	req, _ := http.NewRequest("DELETE", fmt.Sprintf("%s/ml/todos/%s/", h.getMLURL(), todoID), nil)
-	req.Header.Set("X-User-ID", fmt.Sprint(userID))
 
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
+	if err := h.db.Where("id = ? AND user_id = ?", todoID, userID).Delete(&models.Todo{}).Error; err != nil {
 		c.JSON(500, gin.H{"error": "Failed to delete todo"})
 		return
 	}
-	defer resp.Body.Close()
 
-	c.Status(resp.StatusCode)
+	c.Status(204)
 }
 
 func getExchangeRates() (map[string]float64, error) {

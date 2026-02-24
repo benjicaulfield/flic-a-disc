@@ -2,38 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { apiFetch, mlFetch } from '../api/client';
+import type { UserDashboardProps, PerformanceData, StatsData, TodoItem} from '../types/interfaces';
 
-interface UserDashboardProps {
-  onLogout: () => void;
-  tourMode?: boolean;
-
-}
-
-interface PerformanceData {
-  batch_number: number;
-  accuracy: number;
-  correct: number;
-  total: number;
-}
-
-interface StatsData {
-  total_records: number;
-  evaluated_records: number;
-  keeper_count: number;
-  keeper_rate: number;
-  discogs_accuracy: number;
-  ebay_accuracy: number;
-  model_version: string;
-  total_batches: number;
-  ebay_evaluated?: number;
-  ebay_total?: number;
-}
-
-interface TodoItem {
-  id: string;
-  text: string;
-  status: 'in-progress' | 'backlog';
-}
 
 function UserDashboard({ onLogout }: UserDashboardProps) {
   const navigate = useNavigate();
@@ -43,8 +13,8 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   const [loading, setLoading] = useState(true);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [newTodoText, setNewTodoText] = useState('');
-  const [draggedItem, setDraggedItem] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [draggedItem, setDraggedItem] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [editText, setEditText] = useState('');
 
   useEffect(() => {
@@ -92,7 +62,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     }
   };
 
-  const handleDragStart = (e: React.DragEvent, itemId: string) => {
+  const handleDragStart = (e: React.DragEvent, itemId: number) => {
     setDraggedItem(itemId);
     e.dataTransfer.effectAllowed = 'move';
   };
@@ -102,7 +72,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     e.dataTransfer.dropEffect = 'move';
   };
 
-  const handleDrop = async (e: React.DragEvent, newStatus: 'in-progress' | 'backlog') => {
+  const handleDrop = async (e: React.DragEvent, newStatus: 'in-progress' | 'backlog' | 'done') => {
     e.preventDefault();
     if (draggedItem) {
       try {
@@ -131,7 +101,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
   };
 
   const handleSaveEdit = async () => {
-    if (editingId && editText.trim()) {
+    if (editingId !== null && editText.trim()) {
       try {
         const response = await apiFetch(`/api/todos/${editingId}`, {
           method: 'PATCH',
@@ -158,7 +128,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     setEditText('');
   };
 
-  const handleDeleteTodo = async (id: string) => {
+  const handleDeleteTodo = async (id: number) => {
     try {
       const response = await apiFetch(`/api/todos/${id}`, {
         method: 'DELETE',
@@ -174,6 +144,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
 
   const inProgressTodos = todos.filter(t => t.status === 'in-progress');
   const backlogTodos = todos.filter(t => t.status === 'backlog');
+  const doneTodos = todos.filter(t => t.status === 'done');
 
   const loadDashboardData = async () => {
     try {
@@ -255,6 +226,43 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
     }
   };
 
+  const renderTodoItem = (todo: TodoItem) => (
+    <div
+      key={todo.id}
+      draggable
+      onDragStart={(e) => handleDragStart(e, todo.id)}
+      className="text-xs p-2 bg-[#1e1e1e] rounded border border-[#3e3e42] cursor-move hover:border-[#007acc] flex items-center justify-between group"
+    >
+      {editingId === todo.id ? (
+        <input
+          type="text"
+          value={editText}
+          onChange={(e) => setEditText(e.target.value)}
+          onBlur={handleSaveEdit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') handleSaveEdit();
+            if (e.key === 'Escape') handleCancelEdit();
+          }}
+          autoFocus
+          className="flex-1 px-2 py-1 text-xs bg-[#252526] border border-[#007acc] rounded text-[#d4d4d4] focus:outline-none"
+        />
+      ) : (
+        <div
+          className="text-[#d4d4d4] flex-1 cursor-text"
+          onDoubleClick={() => handleStartEdit(todo)}
+        >
+          {todo.text}
+        </div>
+      )}
+      <button
+        onClick={() => handleDeleteTodo(todo.id)}
+        className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
+      >
+        ✓
+      </button>
+    </div>
+  );
+
   return (
     <div className="min-h-screen bg-[#1e1e1e] text-[#d4d4d4] flex font-mono">
       {/* Nav Sidebar - 20% */}
@@ -299,7 +307,7 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
 
         <div className="mb-3">
           <div className="text-xs font-semibold text-[#858585] mb-2">IN PROGRESS</div>
-          <div 
+          <div
             className="space-y-1 bg-[#252526] rounded p-2 min-h-[80px]"
             onDragOver={handleDragOver}
             onDrop={(e) => handleDrop(e, 'in-progress')}
@@ -307,89 +315,38 @@ function UserDashboard({ onLogout }: UserDashboardProps) {
             {inProgressTodos.length === 0 ? (
               <div className="text-xs text-[#6a6a6a] p-2 text-center">Drag items here</div>
             ) : (
-              inProgressTodos.map(todo => (
-                <div
-                  key={todo.id}
-                  draggable
-                  onDragStart={(e) => handleDragStart(e, todo.id)}
-                  className="text-xs p-2 bg-[#1e1e1e] rounded border border-[#3e3e42] cursor-move hover:border-[#007acc] flex items-center justify-between group"
-                >
-                  {editingId === todo.id ? (
-                    <input
-                      type="text"
-                      value={editText}
-                      onChange={(e) => setEditText(e.target.value)}
-                      onBlur={handleSaveEdit}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') handleSaveEdit();
-                        if (e.key === 'Escape') handleCancelEdit();
-                      }}
-                      autoFocus
-                      className="flex-1 px-2 py-1 text-xs bg-[#252526] border border-[#007acc] rounded text-[#d4d4d4] focus:outline-none"
-                    />
-                  ) : (
-                    <div 
-                      className="text-[#d4d4d4] flex-1 cursor-text" 
-                      onDoubleClick={() => handleStartEdit(todo)}
-                    >
-                      {todo.text}
-                    </div>
-                  )}
-                  <button
-                    onClick={() => handleDeleteTodo(todo.id)}
-                    className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
-                  >
-                    ✓
-                  </button>
-                </div>
-              ))
+              inProgressTodos.map(todo => renderTodoItem(todo))
+            )}
+          </div>
+        </div>
+
+        <div className="mb-3">
+          <div className="text-xs font-semibold text-[#858585] mb-2">BACKLOG</div>
+          <div
+            className="space-y-1 bg-[#252526] rounded p-2 min-h-[80px]"
+            onDragOver={handleDragOver}
+            onDrop={(e) => handleDrop(e, 'backlog')}
+          >
+            {backlogTodos.length === 0 ? (
+              <div className="text-xs text-[#6a6a6a] p-2 text-center">Drag items here</div>
+            ) : (
+              backlogTodos.map(todo => renderTodoItem(todo))
             )}
           </div>
         </div>
 
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="text-xs font-semibold text-[#858585] mb-2">BACKLOG</div>
-          <div 
+          <div className="text-xs font-semibold text-[#858585] mb-2">DONE</div>
+          <div
             className="flex-1 overflow-y-auto space-y-1 bg-[#252526] rounded p-2"
             onDragOver={handleDragOver}
-            onDrop={(e) => handleDrop(e, 'backlog')}
+            onDrop={(e) => handleDrop(e, 'done')}
           >
-            {backlogTodos.map(todo => (
-              <div
-                key={todo.id}
-                draggable
-                onDragStart={(e) => handleDragStart(e, todo.id)}
-                className="text-xs p-2 bg-[#1e1e1e] rounded border border-[#3e3e42] cursor-move hover:border-[#007acc] flex items-center justify-between group"
-              >
-                {editingId === todo.id ? (
-                  <input
-                    type="text"
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    onBlur={handleSaveEdit}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') handleSaveEdit();
-                      if (e.key === 'Escape') handleCancelEdit();
-                    }}
-                    autoFocus
-                    className="flex-1 px-2 py-1 text-xs bg-[#252526] border border-[#007acc] rounded text-[#d4d4d4] focus:outline-none"
-                  />
-                ) : (
-                  <div 
-                    className="text-[#d4d4d4] flex-1 cursor-text" 
-                    onDoubleClick={() => handleStartEdit(todo)}
-                  >
-                    {todo.text}
-                  </div>
-                )}
-                <button
-                  onClick={() => handleDeleteTodo(todo.id)}
-                  className="ml-2 text-[#4ec9b0] opacity-0 group-hover:opacity-100 transition-opacity hover:text-[#6ed9c3]"
-                >
-                  ✓
-                </button>
-              </div>
-            ))}
+            {doneTodos.length === 0 ? (
+              <div className="text-xs text-[#6a6a6a] p-2 text-center">Drag items here</div>
+            ) : (
+              doneTodos.map(todo => renderTodoItem(todo))
+            )}
           </div>
         </div>
       </div>

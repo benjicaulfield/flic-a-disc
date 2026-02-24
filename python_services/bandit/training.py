@@ -3,11 +3,13 @@ import numpy as np
 import pickle
 import json
 import mlflow
+import random
 
 from django.utils import timezone
 from django.db.models import F
 from django.conf import settings
 
+from .utils.calculate_optimal_threshold import calculate_optimal_threshold
 from .models import Record, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig
 from .features import RecordFeatureExtractor
 from .neural_bandit import NeuralContextualBandit
@@ -72,6 +74,11 @@ class BanditTrainer:
             })
         
             records, labels = self.prepare_training_data()
+            combined = list(zip(records, labels))
+            random.shuffle(combined)
+            records, labels = zip(*combined)
+            records, labels = list(records), list(labels)
+
             mlflow.log_param("num_training_samples", len(records))
             mlflow.log_param("num_keepers", sum(labels))
             print(f"📊 Loaded {len(records)} records ({sum(labels)} keepers, {len(labels) - sum(labels)} non-keepers)")
@@ -127,7 +134,7 @@ class BanditTrainer:
                 triplets = generate_triplets(
                     keeper_records,
                     non_keeper_records,
-                    num_triplets=min(len(keeper_records), 100),
+                    num_triplets=min(len(keeper_records) * 10, 1000),
                     hard_mining=True,
                     feature_extractor=self.feature_extractor
                 )
@@ -154,8 +161,10 @@ class BanditTrainer:
                 mlflow.log_metrics({
                     "val_accuracy": history['val_accuracy'][epoch],
                     "val_loss": history['val_loss'][epoch],
-                    "train_accuracy": history['train_accuracy'][epoch],
-                    "train_loss": history['train_loss'][epoch]
+                    "train_loss": history['train_loss'][epoch],
+                    "val_f1": history['val_f1'][epoch],
+                    "val_precision": history['val_precision'][epoch],
+                    "val_recall": history['val_recall'][epoch],
                 }, step=epoch)
 
             mlflow.log_metrics({
@@ -232,7 +241,7 @@ class BanditTrainer:
             print(f"📊 Found {len(records)} valid records for training")
 
             features = torch.FloatTensor(self.feature_extractor.extract_batch_features(records))
-            labels = torch.FloatTensor(labels)
+            labels_tensor = torch.FloatTensor(labels)
 
             self.model.eval()
             with torch.no_grad():
@@ -294,7 +303,7 @@ class BanditTrainer:
                 
                 losses = self.model.combined_loss(
                             features,
-                            labels,
+                            labels_tensor,
                             triplet_data=triplet_features)
                 losses['total'].backward()
                 optimizer.step()
@@ -315,8 +324,16 @@ class BanditTrainer:
             with torch.no_grad():
                 mean_pred, _ = self.model.forward(features)
                 predictions = (mean_pred > 0.5).float()
-                accuracy = (predictions == labels).float().mean().item()
+                accuracy = (predictions == labels_tensor).float().mean().item()
                 print(f"📈 Training accuracy on this batch: {accuracy*100:.1f}%")        
+
+                keeper_count = int(labels_tensor.sum().item())
+                total_count = len(labels_tensor)
+                print(f"📊 Batch keeper rate: {keeper_count}/{total_count} ({keeper_count/total_count:.1%})")
+                mlflow.log_metrics({
+                    "batch_accuracy": accuracy,
+                    "batch_keeper_rate": keeper_count / total_count
+                })
                 
                 if batch_num % 5 == 0:
                     mlflow.pytorch.log_model(self.model, f"bandit_model_batch_{batch_num}")
@@ -342,6 +359,13 @@ class BanditTrainer:
                         )
                     except Exception as e:
                         print(f"Warning: Could not save training instance: {e}")
+
+                new_threshold, new_f1 = calculate_optimal_threshold()
+                mlflow.log_metrics({
+                    "updated_threshold": new_threshold,
+                    "updated_f1": new_f1
+                })
+
             
                 # Update model in database (simple approach: just save new version)
                 self.save_model_to_db({'online_update_loss': avg_total_loss})
@@ -351,6 +375,8 @@ class BanditTrainer:
             return {
                 'instances_processed': len(records),
                 'average_loss': avg_total_loss,
+                'batch_keeper_rate': keeper_count / total_count,
+                'updated_threshold': new_threshold,
                 'model_updated': True,
                 'message': f'Updated model with {len(records)} new instances'
             }

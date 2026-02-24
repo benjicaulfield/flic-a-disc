@@ -10,7 +10,7 @@ class NeuralContextualBandit(nn.Module):
                  hidden_dims = [128, 64, 32], 
                  embedding_dim = 64,
                  tfidf_dim = 1000,
-                 dropout_rate = 0.2):
+                 dropout_rate = 0.4):
         super().__init__()
         
         self.tfidf_dim = tfidf_dim
@@ -127,7 +127,7 @@ class NeuralContextualBandit(nn.Module):
         }
     
     def fit(self, feature_extractor, training_records, labels, triplet_records,
-            epochs = 100, batch_size = 32, learning_rate = 0.001):
+            epochs = 100, batch_size = 32, learning_rate = 0.005):
         self.train()
         optimizer = torch.optim.Adam(self.parameters(), lr=learning_rate, weight_decay=0.001)
 
@@ -161,10 +161,11 @@ class NeuralContextualBandit(nn.Module):
         val_features = features_tensor[n_train:]
         val_labels = labels_tensor[n_train:]
         
-        history = {'train_loss': [], 'val_loss': [], 'val_accuracy': []}
+        history = {'train_loss': [], 'val_loss': [], 'val_accuracy': [], 
+                   'val_f1': [], 'val_precision': [], 'val_recall': []}
         
         # Early stopping setup
-        best_val_acc = 0
+        best_f1 = 0.0
         best_model_state = None
         patience = 15  # Wait 15 epochs before giving up
         patience_counter = 0
@@ -211,37 +212,68 @@ class NeuralContextualBandit(nn.Module):
                 val_mean, _ = self.forward(val_features)
                 val_loss = F.binary_cross_entropy(val_mean, val_labels).item()
                 
-                val_pred = (val_mean > 0.2).float()
+                threshold, f1 = self.find_optimal_threshold(val_mean, val_labels)
+                val_pred = (val_mean > threshold).float()
                 val_acc = (val_pred == val_labels).float().mean().item()
 
-                print(f"  Val predictions: min={val_mean.min():.3f}, max={val_mean.max():.3f}, mean={val_mean.mean():.3f}")
-                print(f"  Val pred>0.5: {val_pred.sum()}/{len(val_pred)} ({val_pred.mean():.2%})")
-            
-            history['val_loss'].append(val_loss)
-            history['val_accuracy'].append(val_acc)
+                val_pred_np = val_pred.cpu().numpy()
+                val_labels_np = val_labels.cpu().numpy()
+
+                tp = ((val_pred_np == 1) & (val_labels_np == 1)).sum()
+                fp = ((val_pred_np == 1) & (val_labels_np == 0)).sum()
+                fn = ((val_pred_np == 0) & (val_labels_np == 1)).sum()
+
+                precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+                recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+                f1 = 2 * precision * recall / (precision + recall) if (precision + recall) > 0 else 0.0
+
+                history['val_f1'].append(f1)
+                history['val_precision'].append(precision)
+                history['val_recall'].append(recall)
+                history['val_loss'].append(val_loss)
+                history['val_accuracy'].append(val_acc)
 
             # Early stopping logic
-            if val_acc > best_val_acc:
-                best_val_acc = val_acc
+            if f1 > best_f1:
+                best_f1 = f1
                 best_model_state = {k: v.cpu().clone() for k, v in self.state_dict().items()}
                 patience_counter = 0
-                status = "✓ NEW BEST"
+                print("✓ NEW BEST")
             else:
                 patience_counter += 1
-                status = f"({patience_counter}/{patience})"
+                print(f"({patience_counter}/{patience})")
             
-            print(f"Epoch {epoch}/{epochs} - "
+            print(f"Epoch {epoch}/{epochs}, "
                     f"Train Loss: {avg_train_loss:.4f}, "
                     f"Val Loss: {val_loss:.4f}, "
-                    f"Val Acc: {val_acc:.4f}")
+                    f"Val Acc: {val_acc:.4f}, "
+                    f"F1: {f1:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f} ")
+            
             if patience_counter >= patience:
                 print(f"\n🛑 Early stopping at epoch {epoch}")
-                print(f"   Best val acc: {best_val_acc:.4f} at epoch {epoch - patience}")
+                print(f"   Best val acc: {f1:.4f} at epoch {epoch - patience}")
                 break
 
         if best_model_state is not None:
             self.load_state_dict(best_model_state)
-            print(f"✅ Restored best model with val acc: {best_val_acc:.4f}")
+            print(f"✅ Restored best model with f1: {f1:.4f}")
         
         return history
     
+    def find_optimal_threshold(self, val_mean, val_labels):
+        best_threshold = 0.5
+        best_f1 = 0.0
+
+        for threshold in np.arange(0.05, 0.95, 0.05):
+            pred = (val_mean > threshold).float()
+            tp = ((pred == 1) & (val_labels == 1)).sum().item()
+            fp = ((pred == 1) & (val_labels == 0)).sum().item()
+            fn = ((pred == 0) & (val_labels == 1)).sum().item()
+            p = tp / (tp + fp) if (tp + fp) > 0 else 0
+            r = tp / (tp + fn) if (tp + fn) > 0 else 0
+            f1 = 2 * p * r / (p + r) if (p + r) > 0 else 0
+            if f1 > best_f1:
+                best_f1 = f1
+                best_threshold = threshold
+
+        return best_threshold, best_f1
