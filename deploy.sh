@@ -45,7 +45,7 @@ npm run build
 
 # 4.5 Rebuild Go backend
 cd /opt/flic-a-disc/backend
-go build -o flic-go ./cmd/server
+/usr/local/go/bin/go build -o flic-go ./cmd/server
 
 # 5. Restart services
 echo "♻️ Restarting services..."
