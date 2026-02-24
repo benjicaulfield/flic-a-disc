@@ -1,7 +1,9 @@
 #!/bin/bash
 # deploy.sh - Deploy flic-a-disc to droplet
 
+set -a
 source python_services/.env
+set +a
 
 PROJECT_DIR="/opt/flic-a-disc"
 
