@@ -29,15 +29,20 @@ git reset --hard origin/main
 if ! command -v uv &> /dev/null; then
     echo "Installing uv..."
     curl -LsSf https://astral.sh/uv/install.sh | sh
-    export PATH="\$HOME/.cargo/bin:\$PATH"
+    export PATH="$HOME/.cargo/bin:$PATH"
 fi
 
 # 4. Sync Python deps
-cd python_services
+cd /opt/flic-a-disc/python_services
 uv sync
+uv run python manage.py
+
+cd /opt/flic-a-disc/frontend
+npm ci
+npm run build
 
 # 4.5 Rebuild Go backend
-cd ../backend
+cd /opt/flic-a-disc/backend
 go build -o flic-go ./cmd/server
 
 # 5. Restart services
