@@ -35,7 +35,7 @@ fi
 # 4. Sync Python deps
 cd /opt/flic-a-disc/python_services
 uv sync
-uv run python manage.py
+uv run python manage.py migrate
 
 cd /opt/flic-a-disc/frontend
 npm ci
