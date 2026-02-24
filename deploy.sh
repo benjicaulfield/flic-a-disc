@@ -1,9 +1,9 @@
 #!/bin/bash
 # deploy.sh - Deploy flic-a-disc to droplet
 
-set -a
-source python_services/.env
-set +a
+
+DROPLET_USER=root
+DROPLET_IP=138.197.153.128
 
 PROJECT_DIR="/opt/flic-a-disc"
 
@@ -18,7 +18,7 @@ git push origin main
 
 # 2. SSH into droplet and pull changes
 echo "🔄 Pulling changes on droplet..."
-ssh $DROPLET_USER@$DOMAIN << 'ENDSSH'
+ssh $DROPLET_USER@$DROPLET_IP << 'ENDSSH'
 set -e
 cd /opt/flic-a-disc
 
