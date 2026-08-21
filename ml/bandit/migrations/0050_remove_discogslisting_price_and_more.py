@@ -9,6 +9,27 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # record_price is legacy text like "20.0, USD" — a straight cast to
+        # double precision fails on Postgres. currency exists as a column
+        # but was never actually populated (always ''); the currency was
+        # only ever embedded in record_price. Split it out before changing
+        # the type. SPLIT_PART's part-1 also handles the one row that has
+        # no comma at all ("65.00") by just returning the whole string.
+        # price (being dropped below) is 0 on every row in production —
+        # confirmed dead, safe to drop outright.
+        migrations.RunSQL(
+            sql="""
+                UPDATE discogs_discogslisting
+                    SET currency = TRIM(SPLIT_PART(record_price, ',', 2))
+                    WHERE currency = '' AND record_price LIKE '%,%';
+                ALTER TABLE discogs_discogslisting ALTER COLUMN record_price TYPE double precision
+                    USING TRIM(SPLIT_PART(record_price, ',', 1))::double precision;
+            """,
+            reverse_sql="""
+                ALTER TABLE discogs_discogslisting ALTER COLUMN record_price TYPE varchar
+                    USING record_price::varchar || ', ' || currency;
+            """,
+        ),
         migrations.RemoveField(
             model_name="discogslisting",
             name="price",
