@@ -1,0 +1,83 @@
+FLIC-A-DISC SESSION SUMMARY
+Generated: 2026-07-13
+
+
+ARCHITECTURE DECISIONS
+
+Tab structure finalized. The Deck shell mounts all tabs simultaneously with display toggling for state persistence. Tab registry (Tabs const) holds id, label, Component. Auction and BuyItNow are reserved for tool tabs (bidding, tracking, purchasing). Training for eBay sources moved into subtabs of the Train tab. The shell owns only activeId state — no record state, no fetching.
+
+EbayTab shared component built. Auction and BuyItNow both use EbayTab, passing their own column definitions and endpoints. baseEbayColumns exported from EbayTab and extended per tab. Annotation mode toggled by an Annotate button — browse by default, checkbox column appears on demand, Submit sends evaluated_ids and keeper_ids to the annotation endpoint. Does not annotate page-by-page; annotates the full result set after browsing all pages.
+
+eBay pipeline collapsed from three stages to two. TF-IDF pre-filter removed. New flow: 10,000 raw listings → logistic regression classifier (all 10,000) → sort by keeper_score descending → take top 1,000 → enrich top 1,000 via eBay API → cache as EbayListing → serve to frontend. The TF-IDF filter was causing recall failures by dropping good records before the classifier ever saw them.
+
+Classifier trained on real eBay labels. 54,998 annotated listings (evaluated=True on EbayListing), ~813 keepers (~1.6% positive rate). Logistic regression on bigram TF-IDF title features plus price. Results: ROC AUC 0.892, PR AUC 0.284. Operating threshold set at 0.3 (precision 0.117, recall 0.675, ~1,137 flagged per 10,000). Stored in EbayFirstPassModel Django model. Retrained nightly from accumulated annotations.
+
+EbayListing Django model updated. Added evaluated (BooleanField), wanted (BooleanField, nullable), scraped_at (DateTimeField, auto_now_add), source (CharField, default auction). Go model updated with matching json tags (snake_case) so frontend columns resolve correctly. KeeperScore added as float field.
+
+Existence check on enrichment. Before calling LookupByItemID, check if ebay_id already exists in the DB. If found, skip enrichment and do not append to cache — previously seen listings are excluded from the frontend display. Uses GORM First; "record not found" log is expected/correct behavior, not an error.
+
+Annotation management command built. Imports all CSV files from bandit/ebay/ebay_training_data/, bulk creates EbayListing rows, then bulk updates keeper_ids as evaluated=True/wanted=True and non-keeper_ids as evaluated=True/wanted=False. Fixed bugs: normalize_title was missing return statement (all titles saved as None/empty), header row was being imported as data (added next(reader) skip).
+
+Auto-label script built. Takes full scored CSV, splits into auto-negative (below threshold), auto-positive (above threshold), and review band (middle). Review band sorted ascending by tfidf_score so lowest-scoring records (most likely to be missed by the pipeline) appear first. Rationale: recall failures are worse than precision failures — a record you never see you can never buy.
+
+
+ML DECISIONS
+
+Classifier architecture. Logistic regression chosen over neural model for Stage 2 because: interpretable, fast to train and retrain nightly, works well on sparse TF-IDF features, sufficient for 50k training examples. Neural bandit (Stage 3) handles the richer feature set after enrichment.
+
+Bigrams used (ngram_range=(1,2), max_features=20000). Captures collector phrases like "blue note original", "first press stereo", "white label promo" as single features rather than co-occurring unigrams.
+
+Stop words reconsidered. Words like promo, wlp, og, original carry real collector signal and were previously stripped. Removed from STOP_WORDS so TF-IDF can learn from them.
+
+TF-IDF retrained nightly. POST to /ml/tfidf/rebuild/ refits vectorizer on full current keeper corpus (DiscogsRecord where evaluated=True and wanted=True), saves new model, marks old inactive. Nightly retrain covers bandit, TF-IDF, and first-pass classifier.
+
+Bandit description (for portfolio/writeup). Neural contextual bandit with a contrastive encoder. The contrastive component learns a personalized embedding space by pulling together items accepted and pushing apart items rejected, capturing the latent structure of individual preferences rather than aggregate popularity signals. The bandit layer uses Thompson sampling to balance exploiting known preferences with exploring uncertain candidates, surfacing hidden value in items that don't look obviously desirable on the surface but structurally resemble what has historically been chosen.
+
+
+PRICING
+
+Max bid formula revised. Previous formula (sliding margin based on fee rate) set bids too low — $45 record got $18.71 max bid, not tenable. New formula:
+
+    fraction = 0.75 - 0.273 * exp(-0.02 * sell_price)
+    bid = sell_price * fraction - shipping
+
+Calibrated to: $30 sell → $12 max bid, $45 → $22.76, $100 → $65.30, $200 → $143. Fraction asymptotes to 0.75 at high prices. Shipping assumed $6 flat.
+
+
+GO BACKEND
+
+classifyListings function. Takes []RawListing (changed from []FilteredListing since TF-IDF stage removed), POSTs to /ml/ebay/ebay_classify/, returns []ClassifiedListing with KeeperScore and PassesThreshold. Fallback: on classifier error, log and return without caching (leaves existing cache intact).
+
+saveToCSV updated. Now takes []ClassifiedListing and writes keeper_score column instead of tfidf_score. Called before slicing to top 1,000 so CSV contains all 10,000 scores.
+
+Price logic per source. BIN scrapes use item.Price only (ignores CurrentBidPrice). Auction scrapes use CurrentBidPrice first, fall back to Price. Prevents auction bid prices appearing on BIN listings for dual-format listings.
+
+isLP filter added. Post-scrape filter on raw titles to exclude obvious non-LP formats before classification. Checks for "7\"", "45 rpm", "cd ", "cassette", "8-track", "dvd", "vhs" in lowercased title.
+
+Auction time window simplified. Now takes all auctions ending in the next 24 hours (not the 24-48h window). Filter: itemEndDate:[..{now+24h}].
+
+scraped_at and source fields added to EbayListing Go model. scraped_at uses gorm autoCreateTime. Source set per fetch function ("auction", "bin", "bestmatch").
+
+
+FRONTEND
+
+EbayScoredListing type renamed to EbayScoredListing (was CachedAuctionListing). Used by both Auction and BuyItNow tabs for pre-enrichment display. Post-enrichment display uses EbayListing (full enriched shape with all metadata fields).
+
+DataTable pageSize set to 250 (was 100). Prevents 1,000 listings being cut to 10 pages when the intent is to display all candidates for annotation.
+
+Dedup in getCachedListings. useEbayListings hook dedupes by ebay_id using getEbayId before setting state. Prevents React key collision warnings from pagination drift in eBay scrapes.
+
+json tags on Go EbayListing model. All fields now have snake_case json tags so frontend column accessorKeys resolve correctly. Previously PascalCase keys caused all columns to render N/A.
+
+
+OPEN ITEMS / NEXT
+
+BySeller annotation. Two columns planned: keeper (marks wanted=True in DB) and wantlist (adds to Discogs wantlist via API). Partial results on timeout — since get_inventory saves as it goes, a GET endpoint can retrieve whatever was saved so far rather than showing an error.
+
+Discogs wantlist API integration. Needs OAuth client call to PUT /users/{username}/wants/{release_id}.
+
+Annotation endpoint for eBay. /api/ebay/annotate needs to exist in Go — receives evaluated_ids and keeper_ids, updates EbayListing rows.
+
+Scheduler. Daily jobs not yet automated. Manual curl triggers for now. cmd/scheduler binary planned.
+
+Marketplace. Not started. Weeks 3-4 of sprint.

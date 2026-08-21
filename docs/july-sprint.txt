@@ -1,0 +1,272 @@
+FLIC-A-DISC — SPRINT V2
+Window: 2026-07-02 through 2026-07-30
+Starting point: Deck shell working, three scrape types (auctions, BIN, best match) writing CSVs correctly, roughly 50000 labeled eBay listings in CSVs with around 600-1000 keepers, classifier script written but not yet trained or wired in, annotation not yet built into every tab, marketplace not started.
+
+
+NORTH STAR
+
+Discogs makes money on an 11.2% fee. The methodology's thesis is that loving a record correlates with knowing its market, so high-confidence model picks are also the widest ask-vs-market spreads. Every line of this sprint ladders up to one sentence in the cover letter: "I built a marketplace, a daily buy-recommendation pipeline, and a margin-aware recommender, and here are the numbers."
+
+The buying decision formula. Max bid = net_proceeds * (1 - required_margin) - shipping, where net_proceeds = sell_price * 0.85, shipping = $6 flat, and required_margin slides from 50% at low prices to 15% at high prices via: margin = 0.15 + 0.35 * exp(-0.012 * sell_price). This is the number displayed on every recommendation.
+
+The classifier story. You now have 50000 labeled eBay listings from real scrapes, roughly 2% keepers. This is the actual training data. TF-IDF similarity against a Discogs corpus was the stopgap. A logistic regression on bigram title features plus price, trained on these real labels, is the real Stage 2 filter. It gets trained on Day 1 and retrained nightly from then on. Every day the tools run, the model gets slightly better automatically. Annotation and model improvement are the same activity.
+
+
+DAYS 1-3: CLASSIFIER AND ANNOTATION WIRING
+
+The goal is to get the real classifier trained, wired into the pipeline, and annotation flowing from every tab. These three days close the gap between "data sitting in CSVs" and "model running in production."
+
+Day 1 — Train the first real classifier
+
+[x] Run train_ebay_classifier.py against all your full CSVs and the keepers CSV. Command: python train_ebay_classifier.py --full ebay_auctions_*.csv ebay_bin_*.csv ebay_bestmatch_*.csv --keepers keepers.csv --out ebay_classifier.pkl
+[x] Read the threshold table it prints. Pick an operating threshold where precision is acceptable — you would rather miss some keepers than drown in false positives. Write down the number. This is your Stage 2 cutoff.
+[x] Move the classifier script and the trained model into the ML service. It lives in ml/bandit/ alongside the other model code.
+[x] Write a Django view /ml/ebay/classify/ that loads the trained model and scores a list of listings. Input: list of {ebay_id, ebay_title, price}. Output: same list with keeper_score added to each item.
+[ ] Wire it into the Go pipeline as Stage 2. After filterListingsByTFIDF returns the top 1000, POST them to /ml/ebay/classify/, filter to those above your operating threshold, cache those as the final result. The TF-IDF pass narrows 10000 to 1000. The classifier narrows 1000 to the real candidates.
+[ ] Verify end to end: trigger a scrape, watch it flow through TF-IDF then classifier, confirm the cached listings are a tighter, better set than TF-IDF alone.
+[ ] Log training run metadata to ebay_classifier_eval.json — n_total, n_positive, precision, recall, AUC, threshold chosen, timestamp. This file grows with every retrain and becomes the model improvement story.
+
+Day 2 — Annotation wiring everywhere
+
+[ ] Confirm annotation is working in the Discogs Train tab (Discogs subtab). If not, fix it first.
+[ ] Wire annotation into the Auction subtab of Train. The UI is the same keep/skip pattern — show the listing, keep button, skip button, submit page advances to the next batch. POST to the annotation endpoint with ebay_id and label.
+[ ] Wire annotation into the BIN subtab of Train. Same pattern.
+[ ] Wire annotation into BySeller. You have the keep/skip logic already — the code exists, confirm it is actually POSTing and the records land in the database.
+[ ] Every annotation that comes in should write a row to a persistent annotations table or append to a running CSV (whichever is simpler to wire today). The point is the labels do not live only in your head and your hand-curated CSV. They accumulate automatically.
+[ ] Confirm the nightly retrain job is scheduled or at least documented as a manual curl. It should: pull all accumulated annotations, retrain the classifier, save the new model, log the eval metrics. Even if it is manually triggered for now, the script should exist and work.
+
+Day 3 — Shell polish and dead routes
+
+[x] Kill every dead route. Remove WfmuPlaylistParser, TradingSimulator, DiscogsSellerTrigger from App.tsx and nav. One hour, immediate credibility fix.
+[ ] Stub DiscogsKeepers and EbayKeepers as real components with a table shell, loading state, and placeholder message. They render. They do not embarrass you.
+[ ] Strip all console.log spam across the frontend.
+[ ] Fix the Auction tab type — CachedAuctionListing or EbayScoredListing, not EbayListing. tfidf_score needs to be on the type.
+[ ] Confirm money() and joinList() handle null, undefined, empty string, and string-typed numbers. No crashes on edge case data.
+[ ] Confirm the flex chain is solid on every tab wrapper — flex-1 min-h-0 flex flex-col at every level or internal table scroll breaks.
+[ ] Add the max bid display to the Auction tab. For each listing, show: title, current bid, TF-IDF score, classifier score (once wired), and max bid computed from the sliding margin formula. The max bid is what you actually use.
+[ ] Commit. Message: "feat: real classifier wired, annotation everywhere, shell polish."
+
+
+DAYS 4-7: PIPELINE HARDENING AND DAILY AUTOMATION
+
+Goal: the system runs itself every morning without you touching it. Fresh scores, fresh buy-list, Discord ping.
+
+Day 4 — Persist scrape output and dedup
+
+[x] Persist every eBay scrape result to the ebay_listings table with a scraped_at timestamp and classifier_score. Stop living in memory. The in-memory cache was fine for development.
+[ ] Add the scrape_run table — id, source (ebay_auction, ebay_bin, ebay_bestmatch, discogs_seller), started_at, finished_at, items_scraped, items_after_tfidf, items_after_classifier, status, error. Every pipeline run logs here.
+[ ] Dedup in Go before the TF-IDF pass — after building raw []RawListing, filter by seen ebay_id. Same listing across multiple pages or multiple runs counts once.
+[ ] Dedup in the frontend getCachedListings — already written, confirm it is actually running. The React key duplicate warning should be gone.
+[ ] Confirm BIN and auction caches are separate fields on EbayHandler — cachedAuctions and cachedBIN — so scraping one does not overwrite the other.
+[ ] Make every scrape job idempotent. Running it twice on the same data does not create duplicate DB rows. Use ebay_id unique constraint and FirstOrCreate.
+
+Day 5 — The scheduler
+
+[ ] Build the scheduler as a separate cmd/scheduler binary. Systemd timer on the droplet. Clean separation from the API, survives API restarts.
+[ ] Job 1 — eBay auctions at 06:00 ET. Scrape 24-48h auction window, TF-IDF pass, classifier pass, persist results, write dated CSV, log scrape_run row.
+[ ] Job 2 — eBay BIN at 06:30 ET. Same pipeline, best match sort, persist separately.
+[ ] Job 3 — Discogs seller sweep at 07:00 ET. Iterate low-minimum foreign seller list, fetch inventory, score, persist candidates above margin threshold.
+[ ] Job 4 — Nightly retrain at 02:00 ET. Pull all accumulated annotations. Retrain classifier on full labeled set. POST to /ml/tfidf/rebuild/ to retrain TF-IDF. Log eval metrics. The next morning's scrape picks up fresh models automatically.
+[ ] All jobs rate-limit-respecting. 200ms eBay page sleep, Discogs rate limiter. Guard against partial failure — log to scrape_run and continue, never crash the whole job on one bad page.
+
+Day 6 — Margin math and the morning buy-list
+
+[ ] Implement the sliding margin formula in one place in Python (config or utils). Go and Python both use it. max_bid = net * (1 - margin(sell_price)) - shipping. This is the single function from the notebook — wire it in.
+[ ] Add projected_margin, spread, and max_bid to every recommendation payload. Discogs keepers and eBay recommendations both carry these fields. Consistent across channels.
+[ ] Build the Today's Picks digest. After daily jobs finish, assemble top recommendations across all channels filtered to those where current price is below max_bid (i.e. there is actually margin left at current asking price). Rank by spread times classifier confidence.
+[ ] Persist a snapshot to a daily_picks table so the dashboard shows this morning's list without recomputing.
+
+Day 7 — Week 1 checkpoint
+
+[ ] Trigger the full pipeline manually. Watch scrape_run. See the buy-list appear. Get the Discord ping.
+[ ] Confirm every nav item resolves to something. Nothing blank. Nothing 404.
+[ ] Screenshot the morning digest and a scrape_run history table.
+[ ] Pull the classifier eval log. Record the current numbers — precision, recall, AUC, operating threshold, number of training examples. These are the baseline numbers everything else improves from.
+[ ] Writeup milestone: "Daily automated buy-list, eBay auctions plus BIN plus Discogs, margin-filtered, max bid per listing, classifier trained on 50000 real labels at X% precision, runs on a schedule, Discord notification."
+
+
+DAYS 8-11: DISCOGS MATCHING SANDBOX AND FULL FEATURES
+
+Goal: close the loop between eBay listings and the neural model. The Discogs match unlocks wants/haves/suggested_price as features for eBay recommendations.
+
+Day 8 — Matching sandbox
+
+[ ] Build the Match tab in the Deck. UX: paste an eBay title, click Enrich, see structured metadata (artist, title, label, year, condition from the eBay API), then see the top 5 Discogs record candidates from your database with match scores.
+[ ] Implement the matching logic — structured field match using artist, title, label, year against the discogs_record table. Weighted score: exact artist match high, fuzzy title match medium, year within two low. Return top 5 candidates.
+[ ] Show candidates with enough context to evaluate: artist, title, label, year, wants, haves, suggested_price. Confirm match, reject, or manually pick a different record.
+[ ] When a match is confirmed, store the discogs_record FK on the EbayListing. Add discogs_record as a nullable ForeignKey on the EbayListing Django model. Run the migration.
+
+Day 9 — Full-feature predictions
+
+[ ] Implement prepare_for_prediction. Assembles the full feature dict for an eBay listing — _is_ebay True, all enriched fields, Discogs signal (wants, haves, suggested_price) from the matched record if present, zeros if not. Handle type mismatches: year as int not string, genres as a list.
+[ ] Implement /ml/ebay/rank/ endpoint. Takes enriched eBay listings, runs through the bandit feature extractor and model, returns score, uncertainty, and projected_margin per listing.
+[ ] Wire Stage 3 in Go — after classifier pass, POST top candidates to /ml/ebay/rank/. The bandit score replaces the classifier score as the final ranking signal for listings that have been enriched and matched. Unmatched listings keep their classifier score.
+[ ] Verify end to end: trigger a scrape, watch TF-IDF then classifier then bandit scoring. Cached listings have real model scores and max bids.
+
+Day 10 — Off-policy evaluation
+
+[ ] Implement off-policy evaluation using Inverse Propensity Scoring or a replay estimator against BanditTrainingInstance history. Answers "is the bandit's policy better than random?" This is the senior ML signal in the writeup.
+[ ] Log estimated policy value per model version alongside precision, recall, AUC.
+[ ] Add a drift check. If today's score distribution diverges from training distribution beyond a threshold, log a warning and route to Discord.
+
+Day 11 — Checkpoint
+
+[ ] Held-out eval harness running as a standalone script. Records precision, recall, coverage, policy value, AUC. Logged with timestamp.
+[ ] Write docs/ML.md. Architecture, TF-IDF pre-filter, logistic regression Stage 2, bandit Stage 3, Discogs matching, margin-aware re-ranking, off-policy eval, drift monitoring. This document is half the ML interview.
+[ ] Writeup milestone: "Three-stage eBay pipeline. TF-IDF pre-filter, logistic regression classifier (50000 real labels, X% AUC), neural bandit Stage 3 with Discogs enrichment. Off-policy value +Z% over greedy."
+
+
+DAYS 12-19: THE MARKETPLACE
+
+Goal: a working co-op marketplace with cost-plus transparent fees, real order lifecycle, and a fee-transparency dashboard showing sellers they pay roughly 3% instead of Discogs 11.2%. Helcim is the documented production path. The demo uses a clean PaymentProvider interface with a mock.
+
+Day 12 — Domain model and fee engine
+
+[ ] Schema: SellerAccount, MarketplaceListing, Order, Transaction, Payout, OverheadLedger.
+[ ] Fee engine as a pure unit-tested function. fee = helcim_rate (1.79% + $0.08) + overhead (total_overhead / rolling_4wk_transaction_count). Shipping is pass-through. Never platform revenue.
+[ ] Unit-test the worked example: 1000 txns/month, $50 avg, $600 overhead produces roughly $1.575 per transaction, roughly 3.15%.
+[ ] Define the PaymentProvider interface. charge(amount, token) returns (transaction_id, error). Mock returns success immediately. Helcim drops in behind this interface. Document the decision.
+[ ] Guard: never charge a negative or zero fee, floor the overhead divisor, shipping isolated from fee base.
+
+Day 13 — Seller onboarding
+
+[ ] POST /api/marketplace/sellers. Discogs handle, payout method, agree to terms. Auth-gated.
+[ ] Seller dashboard: account status, active listings, sales, pending payouts, live effective-rate widget showing rolling rate versus Discogs 11.2% with dollars saved.
+[ ] Import listings from Discogs seller inventory. Reuse the existing scraper to pre-populate MarketplaceListing drafts. One-click migration story.
+
+Day 14 — Listings and browse
+
+[ ] POST, PATCH, DELETE /api/marketplace/listings. Seller CRUD on their own listings.
+[ ] Public browse and search. Postgres full-text search on artist, title, label. Filter by genre, condition, price range.
+[ ] Rank browse results with the recommender. The ML and the platform become one system here. Call it out in the writeup.
+[ ] Listing detail page: condition, seller, shipping, add to cart.
+
+Day 15 — Cart and checkout
+
+[ ] Cart model and endpoints. Multi-seller cart splits into per-seller orders.
+[ ] Checkout page: order summary, per-seller shipping, transparent fee line showing buyer-facing total and seller-facing net side by side.
+[ ] Order creation: lock prices, compute fees, create Order and Transaction rows in pending state. No money moves.
+
+Day 16 — Payment and order lifecycle
+
+[ ] Wire mock PaymentProvider. Checkout completes, Transaction marked paid, fee breakdown finalized.
+[ ] Document Helcim as production drop-in: HelcimPay.js hosted fields, tokenization, never touching raw card data, PCI scope minimization. Write this in code comments and the case study.
+[ ] Order state machine: pending to paid to fulfilled to completed, plus cancelled and refunded. Seller marks fulfilled. Auto-complete after a window.
+[ ] Idempotency on the payment path. Double-submit cannot double-charge or leave an order in a bad state.
+
+Day 17 — Payouts
+
+[ ] On order completion, accrue seller net to a Payout record.
+[ ] Weekly payout batch job added to scheduler. Aggregate completed orders per seller, mark for disbursement. Actual disbursement is logged and documented as manual for the demo.
+[ ] Seller payout history view.
+
+Day 18 — Transparency dashboard
+
+[ ] Live overhead ledger, rolling 4-week transaction count, current effective rate, per-seller "you saved $X versus Discogs this period." This single screen is the most persuasive artifact in the whole application for this specific employer.
+[ ] Admin view: total volume, overhead coverage, progress toward stipend target.
+[ ] Referral incentive hook: referral field on signup, "more sellers equals lower everyone's rate" explainer. Shows you understand the growth flywheel.
+
+Day 19 — Marketplace hardening and checkpoint
+
+[ ] Integration tests: full happy path against mock provider, refund path, multi-seller split, idempotent replay.
+[ ] Authorization audit. Seller edits only their own listings. Buyers cannot see other buyers' orders. Admin endpoints locked.
+[ ] Edge cases: out of stock at checkout, price changed since cart, payment failure rollback, concurrent purchase of last copy.
+[ ] Seed demo data — a handful of sellers, roughly 50 listings — so screenshots look alive.
+[ ] Writeup milestone: "Working co-op marketplace, cost-plus fees roughly 3% versus Discogs 11.2%, Helcim documented as production drop-in behind a clean PaymentProvider interface."
+
+
+DAYS 20-24: PRODUCTIONIZE
+
+Goal: deployed, tested, monitored, secured.
+
+Day 20 — CI/CD
+
+[ ] .github/workflows/ci.yml. On every push: go build and go vet and go test, npm ci and tsc --noEmit, python manage.py check and pytest. All three must pass.
+[ ] Deploy job on push to main after CI passes. SSH to droplet, pull, rebuild, migrate, restart.
+[ ] Green CI badge in README.
+
+Day 21 — Containerization and deploy verification
+
+[ ] Dockerfiles for all three services plus the scheduler. docker-compose.yml for full local stack.
+[ ] Deploy and verify all services and systemd scheduler timer come up clean.
+[ ] Smoke-test every nav item on flic-a-disc.com. Nothing 404s. Nothing blank.
+[ ] Confirm all env vars on droplet: DB, JWT_SECRET, ML_SERVICE_URL, EBAY_APP_ID, EBAY_CERT_ID, Helcim sandbox keys, Discord webhook.
+
+Day 22 — Monitoring and alerting
+
+[ ] Prometheus and Grafana. Instrument Go and Django: request latency, error rate, scrape run success and duration, daily pick count, marketplace GMV.
+[ ] Alerting: scrape job failed, ML drift flagged, service down — Discord. scrape_run table makes most of this straightforward.
+
+Day 23 — Security hardening
+
+[ ] Full secrets audit including git history. Rotate anything ever committed. Every service fails loudly on missing secrets.
+[ ] Rate-limit auth and payment endpoints. HTTPS everywhere. Security headers.
+[ ] Auth audit: sellers edit only their own listings, no cross-user data leakage.
+
+Day 24 — Test coverage push
+
+[ ] Go: fee engine, order state machine, max bid formula, eBay pipeline stages, scrape_run logging.
+[ ] Django: /ml/ebay/classify/, /ml/ebay/rank/, margin re-ranking, eval harness.
+[ ] Frontend: smoke tests for checkout and keepers tables.
+[ ] go vet, tsc --noEmit, pytest all green.
+
+
+DAYS 25-30: PACKAGE AND SHIP
+
+Goal: a reviewer understands this in five minutes without reading code.
+
+Day 25 — DiscogsKeepers and EbayKeepers tabs
+
+[ ] Build DiscogsKeepers properly — paginated table of wanted=True records, columns: artist, title, label, year, wants, haves, suggested_price, spread, margin. Sorted by margin descending.
+[ ] Build EbayKeepers — persisted recommended eBay listings sorted by classifier score, with max bid displayed.
+[ ] Add search/filter bar (artist) to both.
+[ ] These are the "output" tabs — what the whole pipeline produces. They should look polished.
+
+Day 26 — README and architecture diagram
+
+[ ] Write the top-level README: what it is, the methodology in two sentences, the three pillars (marketplace, daily pipeline, margin-aware ML), tech stack, architecture diagram (Go, Django ML, React, Postgres, scheduler, Discogs and eBay scrapers), five-minute tour with screenshots.
+[ ] Architecture diagram showing the full pipeline: eBay scrape → TF-IDF → logistic regression → bandit → Discogs match → margin filter → buy-list.
+
+Day 27 — Screenshots and demo data
+
+[ ] Curate screenshots: morning buy-list with max bids, Auction tab with scores, keepers table with margin and spread, checkout with transparent fee, transparency dashboard versus Discogs 11.2%, classifier eval numbers, scrape_run history.
+[ ] Confirm demo data is seeded: sellers, listings, a completed order, the buy-list populated.
+
+Day 28 — Demo video
+
+[ ] Record three to five minutes: trigger the daily pipeline, see the buy-list with max bids, annotate an auction (showing the model will improve), complete a marketplace checkout, show the fee transparency dashboard. A reviewer watching this is most of the way to an interview.
+
+Day 29 — Case study
+
+[ ] Write docs/CASE_STUDY.md: the problem (27% to 40% margin, 11.2% fees), what you built, architecture decisions and trade-offs, real ML numbers (classifier AUC, policy value, number of training labels), marketplace economics, what you would do next. Honest about gaps — Helcim is documented not live, payout disbursement is logged not automated.
+
+Day 30 — Final pass and ship
+
+[ ] Click every nav item. Run the pipeline. Complete a marketplace purchase. Confirm nothing crashes.
+[ ] Tag a release. CI green, droplet healthy.
+[ ] Assemble submission: repo link, README, CASE_STUDY, demo video, ML.md with numbers. Done.
+
+
+DEFINITION OF DONE
+
+[ ] Every nav item resolves to a working feature.
+[ ] A scheduled daily pipeline produces a margin-filtered buy-list with max bids across eBay and Discogs every morning. Run history in scrape_run.
+[ ] Three-stage eBay pipeline: TF-IDF pre-filter, logistic regression classifier trained on 50000 real labels, bandit Stage 3 with Discogs enrichment. Real held-out numbers: AUC, precision, recall, off-policy value. Retrained nightly.
+[ ] A buyer can complete a real sandbox purchase. Seller sees transparent cost-plus fee and accruing payout. Dashboard shows roughly 3% versus Discogs 11.2%.
+[ ] CI green, deployed, monitored, secrets clean.
+[ ] README, architecture diagram, screenshots, demo video, case study. A reviewer gets it in five minutes.
+
+
+RULES FOR THIS SPRINT
+
+Annotate while using. Every tab that shows records has a way to mark keepers. Never do a big annotation drudge session — let the daily usage accumulate signal naturally.
+
+Retrain nightly from Day 5. Even if the model is mediocre on Day 5, it should be retraining every night. Mediocre-and-improving beats perfect-and-static.
+
+No new scrape types or data sources until the marketplace is done. The three scrape types you have (auctions, BIN, best match) are enough. Resist the urge to add more data collection before the pipeline and marketplace are solid.
+
+One commit per day minimum. End every day with a commit and one sentence for the case study. The case study assembles itself from 30 sentences.
+
+Protect the three checkpoints: Day 7 (pipeline running), Day 19 (marketplace demo-able), Day 30 (shipped). If a day slips, carry the task and protect the checkpoint. The 70% rule: 70% done on time beats 100% done late.
+
+The marketplace week is the biggest risk. If Helcim integration stalls, the fee engine plus order lifecycle plus transparency dashboard with a mock provider is still a complete story. The economics and transparency are the point. Protect the dashboard — that is the screenshot that gets you the interview.
