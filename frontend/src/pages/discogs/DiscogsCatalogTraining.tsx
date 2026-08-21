@@ -69,9 +69,7 @@ const DiscogsCatalogTraining = () => {
         setLabeledCount(stats.labeled);
         setTotalCount(stats.total);
       }
-    } catch (err) {
-      console.error('error somewhere', err);
-    }
+    } catch (err) {}
   };
 
   const toggleLabel = (recordId: number, index: number, event: React.MouseEvent): void => {
@@ -158,7 +156,6 @@ const DiscogsCatalogTraining = () => {
       setCumulativeStats(perfData);
 
     } catch (err) {
-      console.error('Save error:', err);  // ✅ ADD THIS DEBUG
       setError('Failed to save labels');
     } finally {
       setSaving(false);

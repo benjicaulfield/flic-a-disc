@@ -113,9 +113,8 @@ func (c *Client) SearchListings(listingType string, hours int) ([]ItemSummary, e
 	filter := fmt.Sprintf("conditionIds:{3000},itemLocationCountry:US,buyingOptions:{%s}", listingType)
 	if listingType == "AUCTION" {
 		sort = "itemEndDate"
-		startTime := time.Now().UTC().Add(24 * time.Hour).Format("2006-01-02T15:04:05.000Z")
-		endTime := time.Now().UTC().Add(48 * time.Hour).Format("2006-01-02T15:04:05.000Z")
-		filter += fmt.Sprintf(",itemEndDate:[%s..%s]", startTime, endTime)
+		endTime := time.Now().UTC().Add(24 * time.Hour).Format("2006-01-02T15:04:05.000Z")
+		filter += fmt.Sprintf(",itemEndDate:[..%s]", endTime)
 	}
 
 	allItems := make([]ItemSummary, 0, maxItems)

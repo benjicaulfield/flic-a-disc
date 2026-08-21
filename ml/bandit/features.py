@@ -307,10 +307,10 @@ class RecordFeatureExtractor:
             if record.get('artist'): artists.append(record['artist'])
             if record.get('label'): labels.append(record['label'])
 
-            self.artist_to_idx = {a: i+1 for i, a in enumerate(sorted(set(artists)))}
-            self.label_to_idx = {l: i+1 for i, l in enumerate(sorted(set(labels)))}
-            self.artist_vocab_size = len(self.artist_to_idx) + 1
-            self.label_vocab_size = len(self.label_to_idx) + 1
+        self.artist_to_idx = {a: i+1 for i, a in enumerate(sorted(set(artists)))}
+        self.label_to_idx = {l: i+1 for i, l in enumerate(sorted(set(labels)))}
+        self.artist_vocab_size = len(self.artist_to_idx) + 1
+        self.label_vocab_size = len(self.label_to_idx) + 1
 
         if numerical_features:
             self.numerical_scaler.fit(numerical_features)

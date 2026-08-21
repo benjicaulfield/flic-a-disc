@@ -18,7 +18,11 @@ class DiscogsRecord(models.Model):
     description = models.TextField(blank=True, null=True)
     evaluated = models.BooleanField(default=False)
     wanted = models.BooleanField(default=False)
+    wantlist = models.BooleanField(default=False)
+    wantlist_evaluated = models.BooleanField(default=False)
     heldout = models.BooleanField(default=False)
+    is_master = models.BooleanField(default=False)
+    master_id = models.IntegerField(null=True, blank=True)
 
     class Meta:
         db_table = 'discogs_record'
@@ -40,6 +44,7 @@ class DiscogsListing(models.Model):
     class Meta:
         db_table = 'discogs_discogslisting'
 
+
 class EbayListing(models.Model):
     id = models.AutoField(primary_key=True)
     ebay_id = models.CharField(max_length=255, unique=True)
@@ -48,11 +53,15 @@ class EbayListing(models.Model):
     artist = models.CharField(max_length=255, blank=True)
     title = models.CharField(max_length=255, blank=True)
     label = models.CharField(max_length=255, blank=True)
-    format = models.CharField(max_length=100, blank=True)
+    format = models.JSONField(max_length=255, blank=True)
     year = models.CharField(max_length=10, blank=True)
     media_condition = models.CharField(max_length=50, blank=True)
-    genres = models.CharField(max_length=100, blank=True)
-    styles = models.CharField(max_length=100, blank=True)
+    genres = models.JSONField(default=list)
+    styles = models.JSONField(default=list)
+    wanted = models.BooleanField(null=True, blank=True)
+    evaluated = models.BooleanField(default=False)
+    source = models.CharField(max_length=64, blank=True)
+    keeper_score = models.FloatField(default=0.0)
     
     class Meta:
         db_table = 'ebay_listings'  # Match Go's table name
@@ -66,9 +75,20 @@ class BanditModel(models.Model):
     is_active = models.BooleanField(default=False)
     batch_count = models.IntegerField(default=0)
     
-
     class Meta:
         db_table = 'bandit_model'
+
+class EbayFirstPassModel(models.Model):
+    version = models.CharField(max_length=255)
+    model_weights = models.BinaryField()
+    hyperparams = models.JSONField(default=dict)
+    training_stats = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+    is_active = models.BooleanField(default=False)
+
+
+    class Meta:
+        db_table = 'ebay_first_pass'
 
 class BanditTrainingInstance(models.Model):
     record = models.ForeignKey(DiscogsRecord, on_delete=models.CASCADE, null=True)

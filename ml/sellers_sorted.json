@@ -41,7 +41,7 @@
         "amount": 200,
         "currency": "CAD",
         "usd": 146.0,
-        "notes": "some in cart, needs a little more"
+        "notes": "DONE"
       },
       {
         "username": "deadstockrecords",
@@ -90,13 +90,7 @@
         "amount": 250,
         "currency": "EUR",
         "usd": 287.5,
-        "notes": "YES"
-      },
-      {
-        "username": "technikrad",
-        "amount": 250,
-        "currency": "EUR",
-        "usd": 287.5
+        "notes": "check again but probably spendy"
       },
       {
         "username": "FrequencesDisquaire",
@@ -110,42 +104,6 @@
         "amount": 50000,
         "currency": "JPY",
         "usd": 300.0
-      },
-      {
-        "username": "ProgMuse",
-        "amount": 300,
-        "currency": "USD",
-        "usd": 300.0
-      },
-      {
-        "username": "bestellung",
-        "amount": 300,
-        "currency": "EUR",
-        "usd": 345.0
-      },
-      {
-        "username": "billyshears_records",
-        "amount": 300,
-        "currency": "EUR",
-        "usd": 345.0
-      },
-      {
-        "username": "Bnjawood",
-        "amount": 300,
-        "currency": "EUR",
-        "usd": 345.0
-      },
-      {
-        "username": "carlosmdp",
-        "amount": 300,
-        "currency": "EUR",
-        "usd": 345.0
-      },
-      {
-        "username": "carpediem66",
-        "amount": 300,
-        "currency": "EUR",
-        "usd": 345.0
       },
       {
         "username": "CasaDelVinileCairoSV",

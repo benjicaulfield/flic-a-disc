@@ -24,8 +24,8 @@ def generate_triplets(keepers, non_keepers, num_triplets = None,
         'negatives': negatives
     }
 
-def select_hard_negative(anchor, negative_candidates, feature_extractor):
-    
+def select_hard_negative(anchor, negative_candidates, feature_extractor, sample_size=300):
+
     def similarity_score(anchor_record, candidate_record):
         score = 0
         
@@ -54,10 +54,19 @@ def select_hard_negative(anchor, negative_candidates, feature_extractor):
         
         return score
     
-    # Find negative with highest similarity to anchor
+    # Score a random sample rather than every candidate — with tens of thousands
+    # of non-keepers, scoring + sorting all of them per triplet dominated runtime
+    # (O(len(negative_candidates) log len(negative_candidates)) per call, called
+    # once per triplet).
+    candidates = (
+        random.sample(negative_candidates, sample_size)
+        if len(negative_candidates) > sample_size
+        else negative_candidates
+    )
+
     scored_negatives = [
         (neg, similarity_score(anchor, neg))
-        for neg in negative_candidates
+        for neg in candidates
     ]
     
     # Select from top 20% most similar (balance hard mining with diversity)

@@ -5,16 +5,17 @@ import json
 import mlflow
 import random
 
-from django.utils import timezone
-from django.db.models import F
+from django.utils import timezone as django_timezone
+from django.db.models import F, Max
 from django.conf import settings
 
 from .utils.calculate_optimal_threshold import calculate_optimal_threshold
-from .models import DiscogsRecord, BanditModel as BanditModelDB, BanditTrainingInstance, ThresholdConfig
+from .models import (DiscogsRecord, DiscogsListing, BanditModel as BanditModelDB, BanditTrainingInstance,
+                     ThresholdConfig, BatchPerformance)
+
 from .features import RecordFeatureExtractor
 from .neural_bandit import NeuralContextualBandit
 from .triplet_generation import generate_triplets, generate_triplets_from_batch
-
 
 class BanditTrainer:
     def __init__(self):
@@ -28,15 +29,34 @@ class BanditTrainer:
     
     def prepare_training_data(self):
         # Query listings where the associated record has been evaluated
-        evaluated_records = DiscogsRecord.objects.filter(evaluated=True)
-        
-        if not evaluated_records.exists():
+        evaluated_records = list(DiscogsRecord.objects.filter(evaluated=True))
+
+        if not evaluated_records:
             raise ValueError("No evaluated listings found for training")
-        
+
+        # Most recent DiscogsListing per record, in two queries (not one per record) —
+        # DiscogsRecord has no price/condition of its own, that's per-listing.
+        latest_listing_ids = (
+            DiscogsListing.objects
+            .filter(record_id__in=[r.id for r in evaluated_records])
+            .values('record_id')
+            .annotate(latest_id=Max('id'))
+        )
+        latest_listings = {
+            l.id: l for l in DiscogsListing.objects.filter(
+                id__in=[row['latest_id'] for row in latest_listing_ids]
+            )
+        }
+        listing_by_record = {
+            row['record_id']: latest_listings[row['latest_id']]
+            for row in latest_listing_ids
+        }
+
         records = []
         labels = []
-        
+
         for record in evaluated_records:
+            listing = listing_by_record.get(record.id)
             record_dict = {
                 'artist': record.artist,
                 'title': record.title,
@@ -45,7 +65,9 @@ class BanditTrainer:
                 'styles': record.styles,
                 'wants': record.wants,
                 'haves': record.haves,
-                'year': record.year,  
+                'year': record.year,
+                'record_price': f"{listing.record_price}, {listing.currency}" if listing else '',
+                'media_condition': listing.media_condition if listing else '',
             }
             records.append(record_dict)
             labels.append(record.wanted)  # The evaluation decision
@@ -56,7 +78,11 @@ class BanditTrainer:
         
         return records, labels
     
-    def train_new_model(self, epochs=100, batch_size=32, learning_rate=0.01, use_tfidf=True):
+    def train_new_model(self, epochs=100, batch_size=32, learning_rate=0.01, use_tfidf=True, seed=42):
+        random.seed(seed)
+        np.random.seed(seed)
+        torch.manual_seed(seed)
+
         print("=" * 60)
         print("🚀 Starting new model training")
         print("=" * 60)
@@ -134,7 +160,7 @@ class BanditTrainer:
                 triplets = generate_triplets(
                     keeper_records,
                     non_keeper_records,
-                    num_triplets=min(len(keeper_records) * 10, 1000),
+                    num_triplets=min(len(keeper_records) * 10, 10000),
                     hard_mining=True,
                     feature_extractor=self.feature_extractor
                 )
@@ -182,6 +208,7 @@ class BanditTrainer:
             return history
         
     def record_to_dict(self, record):
+        listing = DiscogsListing.objects.filter(record_id=record.id).order_by('-id').first()
         return {
             'artist': record.artist,
             'title': record.title,
@@ -191,6 +218,8 @@ class BanditTrainer:
             'wants': record.wants,
             'haves': record.haves,
             'year': record.year,
+            'record_price': f"{listing.record_price}, {listing.currency}" if listing else '',
+            'media_condition': listing.media_condition if listing else '',
         }
     
     def update_model_online(self, instances):
@@ -232,7 +261,7 @@ class BanditTrainer:
                     record_ids.append(record.id)
                     
                 except DiscogsRecord.DoesNotExist:
-                    print(f"Warning: Record {instance['record_id']} not found, skipping")
+                    print(f"Warning: Record {instance['id']} not found, skipping")
                     continue
             
             if not records:
@@ -316,14 +345,12 @@ class BanditTrainer:
                     "triplet_loss": losses['triplet'].item()
                 }, step=epoch)
 
-            
-    
             avg_total_loss = sum(batch_losses) / len(batch_losses)
                       
             self.model.eval()
             with torch.no_grad():
                 mean_pred, _ = self.model.forward(features)
-                predictions = (mean_pred > 0.5).float()
+                predictions = (mean_pred > threshold).float()
                 accuracy = (predictions == labels_tensor).float().mean().item()
                 print(f"📈 Training accuracy on this batch: {accuracy*100:.1f}%")        
 
@@ -334,6 +361,13 @@ class BanditTrainer:
                     "batch_accuracy": accuracy,
                     "batch_keeper_rate": keeper_count / total_count
                 })
+
+                BatchPerformance.objects.create(
+                    batch_number=batch_num, 
+                    correct=int(accuracy * total_count),
+                    total=total_count,
+                    accuracy=accuracy
+                )
                 
                 if batch_num % 5 == 0:
                     mlflow.pytorch.log_model(self.model, f"bandit_model_batch_{batch_num}")
@@ -378,6 +412,7 @@ class BanditTrainer:
                 'batch_keeper_rate': keeper_count / total_count,
                 'updated_threshold': new_threshold,
                 'model_updated': True,
+                'accuracy': accuracy,
                 'message': f'Updated model with {len(records)} new instances'
             }
         
@@ -397,7 +432,7 @@ class BanditTrainer:
         })
         
         bandit_model = BanditModelDB.objects.create(
-            version = f"v{timezone.now().strftime('%Y%m%d_%H%M%S')}",
+            version = f"v{django_timezone.now().strftime('%Y%m%d_%H%M%S')}",
             model_weights = model_weights,
             hyperparams = json.dumps({
                 'hidden_dims': [128, 64, 32],
@@ -467,3 +502,5 @@ class BanditTrainer:
         except Exception as e:
             print(f"Error loading model: {type(e).__name__}: {e}")
             return False
+
+trainer = BanditTrainer()
