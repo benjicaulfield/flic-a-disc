@@ -45,7 +45,7 @@ npm run build
 
 # 4.5 Rebuild Go backend
 cd /opt/flic-a-disc/backend
-/usr/local/go/bin/go build -o flic-go ./cmd/server
+/usr/local/go/bin/go build -o flic-go ./cmd/api
 
 # 5. Restart services
 echo "♻️ Restarting services..."
@@ -59,4 +59,9 @@ sudo systemctl status flic-django --no-pager -l | head -10
 sudo systemctl status flic-go --no-pager -l | head -10
 ENDSSH
 
-echo "🎉 Deployment complete! Visit https://flic-a-disc.com"
+if [ $? -eq 0 ]; then
+    echo "🎉 Deployment complete! Visit https://flic-a-disc.com"
+else
+    echo "❌ Deployment failed — see the error above. Nothing after the failed step ran (the remote script has set -e)."
+    exit 1
+fi
