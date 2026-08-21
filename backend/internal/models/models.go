@@ -4,6 +4,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 // StringSlice is a custom type for handling JSON arrays in PostgreSQL
@@ -24,48 +26,160 @@ func (s *StringSlice) Scan(value interface{}) error {
 
 	switch v := value.(type) {
 	case []byte:
-		return json.Unmarshal(v, s)
+		return s.unmarshalOrWrap(v)
 	case string:
-		return json.Unmarshal([]byte(v), s)
+		if v == "" {
+			*s = StringSlice{}
+			return nil
+		}
+		return s.unmarshalOrWrap([]byte(v))
 	}
 	return nil
 }
 
+func (s *StringSlice) unmarshalOrWrap(data []byte) error {
+	// Try parsing as array first
+	if err := json.Unmarshal(data, s); err == nil {
+		return nil
+	}
+
+	// If that fails, treat as single string
+	var single string
+	if err := json.Unmarshal(data, &single); err == nil {
+		*s = StringSlice{single}
+		return nil
+	}
+
+	// Give up, set empty
+	*s = StringSlice{}
+	return nil
+}
+
 // Record represents a music record
-type Record struct {
+type DiscogsRecord struct {
 	ID             uint        `json:"id" gorm:"primaryKey"`
 	DiscogsID      string      `json:"discogs_id" gorm:"uniqueIndex:discogs_discogsrecord_discogs_id_key;not null"`
 	Artist         string      `json:"artist" gorm:"not null"`
 	Title          string      `json:"title" gorm:"not null"`
-	Format         string      `json:"format" gorm:"default:''"`
+	Format         StringSlice `json:"format" gorm:"type:jsonb;default:'[]'"`
 	Label          string      `json:"label" gorm:"type:text"`
 	Catno          *string     `json:"catno"`
 	Wants          int         `json:"wants" gorm:"default:0"`
-	Haves          int         `json:"Shaves" gorm:"default:0"`
-	Added          time.Time   `json:"added" gorm:"default:CURRENT_TIMESTAMP"`
+	Haves          int         `json:"haves" gorm:"default:0"`
 	Genres         StringSlice `json:"genres" gorm:"type:jsonb;default:'[]'"`
 	Styles         StringSlice `json:"styles" gorm:"type:jsonb;default:'[]'"`
 	SuggestedPrice string      `json:"suggested_price" gorm:"default:''"`
 	Year           *int        `json:"year"`
 	Wanted         bool        `json:"wanted" gorm:"default:false"`
 	Evaluated      bool        `json:"evaluated" gorm:"default:false"`
+	Country        string      `json:"country" gorm:"default:''"`
+	Heldout        bool        `json:"heldout_set" gorm:"default:false"`
 }
 
 // Seller represents a record seller
-type Seller struct {
-	ID   uint   `json:"id" gorm:"primaryKey"`
-	Name string `json:"name" gorm:"not null"`
+type DiscogsSeller struct {
+	ID       uint   `json:"id" gorm:"primaryKey"`
+	Name     string `json:"name" gorm:"not null"`
+	Currency string `json:"currency"`
 }
 
 // Listing represents a record listing by a seller
 type DiscogsListing struct {
-	ID             uint   `json:"id" gorm:"primaryKey"`
-	SellerID       uint   `json:"seller_id" gorm:"not null"`
-	Seller         Seller `json:"seller" gorm:"foreignKey:SellerID"`
-	RecordID       uint   `json:"record_id" gorm:"not null"`
-	Record         Record `json:"record" gorm:"foreignKey:RecordID"`
-	RecordPrice    string `json:"record_price" gorm:"not null"`
-	MediaCondition string `json:"media_condition" gorm:"not null"`
+	ID             uint          `json:"id" gorm:"primaryKey"`
+	SellerID       uint          `json:"seller_id" gorm:"not null"`
+	Seller         DiscogsSeller `json:"seller" gorm:"foreignKey:SellerID"`
+	RecordID       uint          `json:"record_id" gorm:"not null"`
+	Record         DiscogsRecord `json:"record" gorm:"foreignKey:RecordID"`
+	RecordPrice    string        `json:"record_price" gorm:"not null"`
+	MediaCondition string        `json:"media_condition" gorm:"not null"`
+	Currency       string        `json:"currency" gorm:"not null"`
+}
+
+type EbayListing struct {
+	ID             uint   `gorm:"primaryKey"`
+	EbayID         string `gorm:"uniqueIndex;not null"`
+	EbayTitle      string
+	Price          string
+	Artist         string
+	Title          string
+	Label          string
+	Format         StringSlice `gorm:"type:jsonb;default:'[]'"`
+	Year           string
+	MediaCondition string
+	Genre          string
+	Style          string
+}
+
+type KnapsackItem struct {
+	DiscogsID      int            `json:"discogs_id"`
+	Artist         string         `json:"artist"`
+	Title          string         `json:"title"`
+	Price          float64        `json:"price"`
+	Currency       string         `json:"currency"`
+	MediaCondition string         `json:"media_condition"`
+	Seller         string         `json:"seller"`
+	Label          string         `json:"label"`
+	Catno          string         `json:"catno"`
+	Wants          int            `json:"wants"`
+	Haves          int            `json:"haves"`
+	SuggestedPrice *float64       `json:"suggested_price"`
+	Genres         pq.StringArray `json:"genres" gorm:"type:text[]"`
+	Styles         pq.StringArray `json:"styles" gorm:"type:text[]"`
+	Year           *int           `json:"year"`
+	Score          float64        `json:"score"`
+}
+
+type RankingSession struct {
+	ID         uint          `gorm:"primaryKey"`
+	ListingIDs pq.Int64Array `gorm:"type:integer[]"`
+	Completed  bool          `gorm:"default:false"`
+}
+
+type RankingBatch struct {
+	SessionID  uint
+	BatchIndex int
+	Ranking    pq.Int64Array `gorm:"type:integer[]"`
+}
+
+type SellerKnapsack struct {
+	Seller        string         `json:"seller"`
+	Knapsack      []KnapsackItem `json:"knapsack"`
+	Contenders    []KnapsackItem `json:"contenders"`
+	TotalSelected int            `json:"total_selected"`
+	TotalCost     float64        `json:"total_cost"`
+	TotalScore    float64        `json:"total_score"`
+}
+
+type KnapsackRequest struct {
+	Seller string  `json:"seller"`
+	Budget float64 `json:"budget"`
+}
+
+type KnapsackResponse struct {
+	Budget        float64        `json:"budget"`
+	Seller        string         `json:"seller"`
+	Knapsack      []KnapsackItem `json:"knapsack"`
+	Contenders    []KnapsackItem `json:"contenders"`
+	TotalSelected int            `json:"total_selected"`
+	TotalCost     float64        `json:"total_cost"`
+	TotalScore    float64        `json:"total_score"`
+}
+
+type KnapsackWeights struct {
+	Embedding float64 `json:"embedding"`
+	PriceDiff float64 `json:"price_diff"`
+	IsWant    float64 `json:"is_want"`
+}
+
+type OptimizationResult struct {
+	SelectedItems []DiscogsRecord `json:"selected_items"`
+	TotalScore    float64         `json:"total_score"`
+	TotalCost     float64         `json:"total_cost"`
+	SellerName    string          `json:"seller_name"`
+}
+
+type ExchangeRateResponse struct {
+	Rates map[string]float64 `json:"rates"`
 }
 
 type Bandit struct {
@@ -79,14 +193,14 @@ type Bandit struct {
 }
 
 type BanditTrainingInstance struct {
-	ID        uint      `json:"id" gorm:"primaryKey"`
-	RecordID  uint      `json:"record_id" gorm:"not null"`
-	Record    Record    `json:"record" gorm:"foreignKey:RecordID"`
-	Context   string    `json:"context" gorm:"type:jsonb"`
-	Predicted bool      `json:"predicted"`
-	Actual    bool      `json:"actual"`
-	Reward    float64   `json:"reward"`
-	Timestamp time.Time `json:"timestamp" gorm:"autoCreateTime"`
+	ID        uint          `json:"id" gorm:"primaryKey"`
+	RecordID  uint          `json:"record_id" gorm:"not null"`
+	Record    DiscogsRecord `json:"record" gorm:"foreignKey:RecordID"`
+	Context   string        `json:"context" gorm:"type:jsonb"`
+	Predicted bool          `json:"predicted"`
+	Actual    bool          `json:"actual"`
+	Reward    float64       `json:"reward"`
+	Timestamp time.Time     `json:"timestamp" gorm:"autoCreateTime"`
 }
 
 type BanditMetrics struct {
@@ -108,28 +222,14 @@ type BatchPerformance struct {
 	Accuracy  float64   `json:"accuracy"`
 }
 
-type EbayListing struct {
-	ID           uint   `gorm:"primaryKey"`
-	EbayID       string `gorm:"index:,unique;not null"`
-	EbayTitle    string
-	Price        string
-	Currency     string
-	CurrentBid   string
-	BidCount     int
-	EndDate      time.Time
-	CreationDate time.Time
-
-	// Enriched metadata (populated after save)
-	Artist          string
-	Album           string
-	Label           string
-	Format          string
-	Year            string
-	RecordCondition string
-	SleeveCondition string
-	Genre           string
-	Style           string
-	Keeper          bool `gorm:"default:false"`
+type Todo struct {
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index;not null" json:"user_id"`
+	Text      string    `gorm:"not null" json:"text"`
+	Status    string    `gorm:"default:'backlog'" json:"status"`
+	Order     int       `gorm:"default:0" json:"order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type User struct {
@@ -152,12 +252,12 @@ func (BanditMetrics) TableName() string {
 }
 
 // TableName methods for custom table names to match Django
-func (Record) TableName() string {
-	return "discogs_discogsrecord"
+func (DiscogsRecord) TableName() string {
+	return "discogs_record"
 }
 
-func (Seller) TableName() string {
-	return "discogs_dicogsseller"
+func (DiscogsSeller) TableName() string {
+	return "discogs_discogsseller"
 }
 
 func (DiscogsListing) TableName() string {

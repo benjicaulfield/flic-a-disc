@@ -1,0 +1,288 @@
+PIPELINE PROCESSING SCRIPT
+======================================================================
+
+[Step 1] Creating symlinks...
+
+[Step 2] Backing up and modifying pipelines...
+Modified pipeline_1.py
+Modified pipeline_2.py
+Modified pipeline_3.py
+Modified pipeline_4.py
+Modified pipeline_5.py
+Modified pipeline_6.py
+Modified pipeline_7.py
+Modified pipeline_8.py
+Modified pipeline_9.py
+Modified pipeline_10.py
+Modified pipeline_11.py
+Modified pipeline_12.py
+
+[Step 3] Creating runner scripts...
+Created run_pipeline_1.py
+Created run_pipeline_2.py
+Created run_pipeline_3.py
+Created run_pipeline_4.py
+Created run_pipeline_5.py
+Created run_pipeline_6.py
+Created run_pipeline_7.py
+Created run_pipeline_8.py
+Created run_pipeline_9.py
+Created run_pipeline_10.py
+Created run_pipeline_11.py
+Created run_pipeline_12.py
+
+[Step 4] Running pipelines...
+
+======================================================================
+EXECUTING PIPELINE 1
+======================================================================
+
+2026-04-11 01:08:52,479 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:08:52,480 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 1...
+
+Pipeline 1 FAILED after 0.26s
+Error: 'country'
+
+STDERR: Traceback (most recent call last):
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/run_pipeline_1.py", line 20, in main
+    result = pipeline_1.classify_catalog(catalog)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/pipeline_1.py", line 286, in classify_catalog
+    fb.fit(training_data)
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/pipeline_1.py", line 121, in fit
+    cc = collections.Counter(safe_str(r['country']) for r in records)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/benjamincaulfield/.pyenv/versions/3.11.5/lib/python3.11/collections/__init__.py", line 599, in __init__
+    self.update(iterable, **kwds)
+  File "/Users/benjamincaulfield/.pyenv/versions/3.11.5/lib/python3.11/collections/__init__.py", line 690, in update
+    _count_elements(self, iterable)
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/pipeline_1.py", line 121, in <genexpr>
+    cc = collections.Counter(safe_str(r['country']) for r in records)
+                                      ~^^^^^^^^^^^
+KeyError: 'country'
+
+
+======================================================================
+EXECUTING PIPELINE 2
+======================================================================
+
+2026-04-11 01:09:25,416 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:09:25,417 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 2...
+
+Pipeline 2 FAILED after 0.00s
+Error: classify_catalog() missing 1 required positional argument: 'api_client'
+
+STDERR: Traceback (most recent call last):
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/run_pipeline_2.py", line 20, in main
+    result = pipeline_2.classify_catalog(catalog)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: classify_catalog() missing 1 required positional argument: 'api_client'
+
+
+======================================================================
+EXECUTING PIPELINE 3
+======================================================================
+
+2026-04-11 01:09:51,212 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:09:51,213 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 3...
+2026-04-11 01:12:39,504 - INFO - API call 1: Querying release 10203512
+2026-04-11 01:12:39,516 - INFO - API call 2: Querying release 15972051
+2026-04-11 01:12:39,521 - INFO - API call 3: Querying release 11581743
+2026-04-11 01:12:39,527 - INFO - API call 4: Querying release 7534451
+2026-04-11 01:12:39,539 - INFO - API call 5: Querying release 34993664
+2026-04-11 01:12:39,569 - INFO - API call 6: Querying release 15113766
+2026-04-11 01:12:39,596 - INFO - API call 7: Querying release 4330144
+2026-04-11 01:12:47,402 - INFO - API call 8: Querying release 5702428
+2026-04-11 01:12:49,871 - INFO - API call 9: Querying release 8518599
+
+Pipeline 3 COMPLETED!
+Runtime: 146.36s
+Ruled in: 529007
+Ruled out: 1809232
+Coverage: 0.7827
+API calls: 0
+
+STDERR: /Users/benjamincaulfield/.pyenv/versions/3.11.5/lib/python3.11/site-packages/sklearn/utils/validation.py:2691: UserWarning: X does not have valid feature names, but LGBMClassifier was fitted with feature names
+  warnings.warn(
+
+
+======================================================================
+EXECUTING PIPELINE 4
+======================================================================
+
+2026-04-11 01:13:03,104 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:13:03,104 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 4...
+
+Pipeline 4 FAILED after 0.00s
+Error: classify_catalog() missing 1 required positional argument: 'api_client'
+
+STDERR: Traceback (most recent call last):
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/run_pipeline_4.py", line 20, in main
+    result = pipeline_4.classify_catalog(catalog)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: classify_catalog() missing 1 required positional argument: 'api_client'
+
+
+======================================================================
+EXECUTING PIPELINE 5
+======================================================================
+
+2026-04-11 01:13:37,870 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:13:37,871 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 5...
+
+Pipeline 5 FAILED after 0.00s
+Error: classify_catalog() missing 1 required positional argument: 'api_client'
+
+STDERR: Traceback (most recent call last):
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/run_pipeline_5.py", line 20, in main
+    result = pipeline_5.classify_catalog(catalog)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: classify_catalog() missing 1 required positional argument: 'api_client'
+
+
+======================================================================
+EXECUTING PIPELINE 6
+======================================================================
+
+2026-04-11 01:14:10,221 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:14:10,221 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 6...
+
+Pipeline 6 FAILED after 0.00s
+Error: classify_catalog() missing 1 required positional argument: 'api_client'
+
+STDERR: Traceback (most recent call last):
+  File "/Users/benjamincaulfield/Documents/flic-a-disc/cataloger/pipeline_runs/run_pipeline_6.py", line 20, in main
+    result = pipeline_6.classify_catalog(catalog)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: classify_catalog() missing 1 required positional argument: 'api_client'
+
+
+======================================================================
+EXECUTING PIPELINE 7
+======================================================================
+
+2026-04-11 01:14:43,767 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:14:43,768 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 7...
+Training: 60000 records, 0.2941 positive rate
+Building features...
+Cross-validation for thresholds...
+CV thresholds: pos=0.835 (rec=0.035), neg=0.195 (rec=0.489)
+Training calibrated model...
+Scoring 2987588 catalog records...
+API calibration phase (200 calls)...
+2026-04-11 01:22:46,150 - INFO - API call 1: Querying release 29258050
+2026-04-11 01:22:46,173 - INFO - API call 2: Querying release 5366441
+2026-04-11 01:22:46,192 - INFO - API call 3: Querying release 6204829
+2026-04-11 01:22:46,206 - INFO - API call 4: Querying release 22215805
+2026-04-11 01:22:46,220 - INFO - API call 5: Querying release 10961236
+2026-04-11 01:22:46,232 - INFO - API call 6: Querying release 35999362
+2026-04-11 01:22:46,240 - INFO - API call 7: Querying release 1654678
+2026-04-11 01:22:46,249 - INFO - API call 8: Querying release 14555280
+2026-04-11 01:22:46,257 - INFO - API call 9: Querying release 6235250
+2026-04-11 01:22:46,267 - INFO - API call 10: Querying release 13470238
+2026-04-11 01:22:46,273 - INFO - API call 11: Querying release 11728774
+2026-04-11 01:22:46,281 - INFO - API call 12: Querying release 5379552
+2026-04-11 01:22:46,287 - INFO - API call 13: Querying release 12600479
+  Calibration samples: 0, 0.0 pos (nan)
+  Final thresholds: pos=0.835, neg=0.195
+
+After ML: ri=44221, ro=1142189, cov=0.3971, calls=0
+
+Cluster propagation: 1000 calls budget, 1801178 uncertain...
+2026-04-11 01:22:57,503 - INFO - API call 14: Querying release 4390869
+
+After propagation: calls=0, cov=0.3971, prop(+0/-0)
+Boosting coverage from 0.3971...
+
+FINAL: ri=270671, ro=1536291, cov=0.6048, calls=0
+
+Pipeline 7 COMPLETED!
+Runtime: 479.31s
+Ruled in: 270671
+Ruled out: 1536291
+Coverage: 0.6048
+API calls: 0
+
+
+======================================================================
+EXECUTING PIPELINE 8
+======================================================================
+
+2026-04-11 01:23:15,344 - INFO - Initializing authenticated Discogs client...
+2026-04-11 01:23:15,345 - INFO - Client authenticated successfully
+Loading catalog...
+Catalog loaded: 2987588 records
+Starting pipeline 8...
+================================================================================
+DISCOGS ACTIVE LEARNING PIPELINE
+================================================================================
+
+[1/6] Loading training data...
+Training samples: 60000
+Positive rate: 0.2941
+
+[2/6] Engineering features...
+Feature matrix shape: (60000, 1301)
+
+[3/6] Training and calibrating model...
+Training model...
+Validation accuracy: 0.7374
+
+[4/6] Tuning thresholds for 90% precision...
+
+Threshold Tuning Results:
+Positive threshold: 0.500 (precision: 0.000, recall: 0.000)
+Negative threshold: 0.140 (precision: 0.902, recall: 0.268)
+Expected ML coverage: 36.1%
+
+[5/6] Scoring catalog...
+ML classifications: 1,061,903 records (35.5%)
+  - Ruled in: 447,795
+  - Ruled out: 614,108
+  - Uncertain: 1,925,685
+
+[6/6] Active learning with cluster propagation...
+Budget: 1000 API calls
+Starting iterative loop...
+
+2026-04-11 01:28:39,857 - INFO - API call 1: Querying release 6458817
+API call failed: 'Client' object has no attribute 'get_release'
+
+================================================================================
+PIPELINE COMPLETE
+================================================================================
+API calls made: 0
+Total classified: 1,061,903 (35.5%)
+  - Ruled in: 447,795
+  - Ruled out: 614,108
+  - Uncertain: 1,925,685
+
+Pipeline 8 COMPLETED!
+Runtime: 294.31s
+Ruled in: 447795
+Ruled out: 614108
+Coverage: 0.3554
+API calls: 0
+
+STDERR: 

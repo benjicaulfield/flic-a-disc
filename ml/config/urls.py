@@ -1,0 +1,9 @@
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path("admin/", admin.site.urls),
+    path("ml/", include("bandit.urls")),
+    path("ml/discogs/", include("discogs.urls")),
+]
+ 

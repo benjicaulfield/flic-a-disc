@@ -55,28 +55,38 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
-	r.OPTIONS("/*path", func(c *gin.Context) {
-		c.Status(200)
-	})
-
 	h := handlers.New(db, cfg)
 	ebayHandler := handlers.NewEbayHandler(cfg.External.EbayAppId, cfg.External.EbayCertId, db)
 	authHandler := handlers.NewAuthHandler(db)
 
 	r.POST("/api/auth/login", authHandler.Login)
 	r.POST("/api/auth/logout", authHandler.Logout)
+	r.GET("/api/todos/recent", h.GetRecentCompletedTodos)
 
 	protected := r.Group("/api")
 	protected.Use(authHandler.AuthMiddleware())
 	{
+		protected.POST("/discogs/by-seller", h.BySellerHandler)
 		protected.GET("/discogs/keepers", h.GetDiscogsKeepersPage)
 		protected.GET("/discogs/stats", h.GetStats)
 		protected.POST("/discogs/labels", h.LabelRecords)
+		protected.POST("/discogs/catalog/labels", h.LabelCatalogRecords)
 		protected.GET("/discogs/wanted", h.GetWantedRecords)
 		protected.POST("/discogs/performance", h.RecordBatchPerformance)
-		protected.GET("/ebay/auctions", ebayHandler.GetCachedListings)
-		protected.POST("/ebay/refresh", ebayHandler.TriggerFetch)
+		protected.POST("/discogs/knapsack", h.KnapsackHandler)
+		protected.GET("/discogs/knapsack/sessions", h.KnapsackSessionsList)
+		protected.PATCH("/discogs/knapsack/sessions/:id", h.KnapsackSessionUpdate)
+		protected.GET("/discogs/knapsack/sessions/compare", h.KnapsackSessionsCompare)
+		protected.POST("/discogs/ranking/batch", h.RankingTrainer)
+		protected.GET("/discogs/ranking/submit", h.SubmitRanking)
+		protected.GET("/ebay/auctions", ebayHandler.GetCachedAuctions)
+		protected.POST("/ebay/refresh_auctions", ebayHandler.TriggerFetchAuctions)
+		protected.GET("/ebay/buyitnows", ebayHandler.GetCachedBIN)
+		protected.POST("/ebay/refresh_buyitnows", ebayHandler.TriggerFetchBuyItNows)
 		protected.GET("/discogs/select_batch", h.GetDiscogsKeepersPage)
+		protected.GET("/discogs/catalog-candidates", h.GetCatalogCandidates)
+		protected.POST("/discogs/catalog-candidates", h.SaveCatalogCandidates)
+		protected.GET("/discogs/oof", h.GetOOFBatch)
 		protected.GET("/ebay/recommend", ebayHandler.RecommendEbayListings)
 		protected.GET("/auth/me", authHandler.Me)
 		protected.GET("/todos", h.GetTodos)
@@ -93,9 +103,9 @@ func main() {
 	srv := &http.Server{
 		Addr:         ":" + port,
 		Handler:      r,
-		ReadTimeout:  120 * time.Second,
-		WriteTimeout: 120 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  20 * time.Minute,
+		WriteTimeout: 20 * time.Minute,
+		IdleTimeout:  20 * time.Minute,
 	}
 
 	log.Printf("API listening on :%s", port)

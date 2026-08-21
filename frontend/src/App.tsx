@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import DiscogsTraining from './pages/DiscogsTraining';
-import DiscogsSellerTrigger from './pages/DiscogsSellerTrigger';
-import DiscogsScraperTrigger from './pages/DiscogsScraperTrigger';
-import DiscogsInventoryView from './pages/DiscogsInventoryView';
-import DiscogsKeepers from './pages/DiscogsKeepers';
-import TradingSimulator from './pages/TradingSimulator';
-import WfmuPlaylistParser from './pages/WfmuPlaylistParser';
-import EbayAuctions from './pages/EbayAuctions';
-import EbayBuyItNow from './pages/EbayBuyItNow';
-import EbayKeepers from './pages/EbayKeepers';
+import DiscogsTraining from './pages/discogs/DiscogsTraining';
+import DiscogsOOF from './pages/discogs/DiscogsOOF';
+import DiscogsKnapsack from './pages/discogs/DiscogsKnapsack';
+import DiscogsKnapsackComparison from './pages/discogs/DiscogsKnapsackComparison';
+import DiscogsCatalogTraining from './pages/discogs/DiscogsCatalogTraining';
+import Deck from './features/deck/Deck';
+import TourView from './pages/tour/TourView';
+import EbayBuyItNow from './pages/ebay/EbayBuyItNow';
+import EbayKeepers from './pages/ebay/EbayKeepers';
 import LandingPage from './pages/landing/LandingPage';
 import UserDashboard from './pages/UserDashboard';
-import type { User } from './types/interfaces';
+import type { User } from "./types";
 import { apiFetch } from './api/client';
 
 
@@ -35,7 +34,7 @@ function App() {
       setUser(data);
     }  
   } catch (err) {
-    console.log("Not authenticated");
+    
   } finally {
     setLoading(false);
   }
@@ -66,17 +65,17 @@ return (
         <Route path="/dashboard" element={user
               ? <UserDashboard onLogout={handleLogout} />
               : <Navigate to="/" replace /> } />
+        <Route path="/tour" element={<TourView /> } />
+        <Route path="/deck" element={user ? <Deck /> : <Navigate to="/" />} />
+
         <Route path="/discogs/training" element={user ? <DiscogsTraining /> : <Navigate to="/" />} />
-        <Route path="/discogs/seller-trigger" element={user ? <DiscogsSellerTrigger /> : <Navigate to ="/" />} />
-        <Route path="/discogs/scraper-trigger" element={user ? <DiscogsScraperTrigger /> : <Navigate to ="/" />} />
-        <Route path="/discogs/keepers" element={user ? <DiscogsKeepers /> : <Navigate to ="/" />} />
-        <Route path="/discogs/inventory-view" element={user ? <DiscogsInventoryView /> : <Navigate to ="/" />} />
-  
-        <Route path="/ebay/auctions" element={user ? <EbayAuctions /> : <Navigate to="/" />} />
-        <Route path="/ebay/buyitnow" element={user ? <EbayBuyItNow /> : <Navigate to="/" />} />
+        <Route path="/discogs/oof" element={user ? <DiscogsOOF /> : <Navigate to="/" />} />
+        <Route path="/discogs/catalog" element={user ? <DiscogsCatalogTraining /> : <Navigate to="/" />} />
+        <Route path="/discogs/knapsack" element={user ? <DiscogsKnapsack /> : <Navigate to="/" />} />
+        <Route path="/discogs/knapsack/compare" element={user ? <DiscogsKnapsackComparison /> : <Navigate to="/" />} />
+\       <Route path="/ebay/buyitnow" element={user ? <EbayBuyItNow /> : <Navigate to="/" />} />
         <Route path="/ebay/keepers" element={user ? <EbayKeepers /> : <Navigate to="/" />} />
-        <Route path="/wfmu/playlist-parser" element={user ? <WfmuPlaylistParser /> : <Navigate to="/" />} />
-        <Route path="/trading/simulator" element={user ? <TradingSimulator /> : <Navigate to="/" />} />
+    
 
 
         <Route path="/" />

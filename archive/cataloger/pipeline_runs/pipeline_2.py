@@ -1,0 +1,564 @@
+"""
+Active Learning Pipeline for Vinyl LP Classification.
+
+Classifies records as desirable (wants > haves) using:
+1. Augmented LightGBM model robust to unknown label/artist features
+2. API-calibrated thresholds via stratified sampling with isotonic smoothing
+3. Master_id and label-based propagation for extended coverage
+"""
+
+import json
+import numpy as np
+import pandas as pd
+import lightgbm as lgb
+import re
+from collections import defaultdict, Counter
+
+import logging
+import os
+import sys
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('pipeline_2.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Django setup
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ml_path = os.path.join(project_root, 'ml')
+if ml_path not in sys.path:
+    sys.path.insert(0, ml_path)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+
+from bandit.utils.get_user_inventory import authenticate_client
+from bandit.models import Record
+from django.utils import timezone
+
+# Initialize authenticated Discogs client
+logger.info("Initializing authenticated Discogs client...")
+api_client_global = authenticate_client()
+logger.info("Client authenticated successfully")
+
+# API call counter and helper
+api_call_counter = [0]  # Use list for mutable global
+
+def get_release_logged(release_id):
+    """Helper function to get release with logging and DB save."""
+    api_call_counter[0] += 1
+    logger.info(f"API call {api_call_counter[0]}: Querying release {release_id}")
+
+    result = api_client_global.get_release(release_id)
+
+    # Extract wants/haves from community stats
+    stats = (result.data.get('stats') or {}).get('community') or {}
+    wants = stats.get('in_wantlist', 0)
+    haves = stats.get('in_collection', 0)
+
+    logger.info(f"API call {api_call_counter[0]}: Release {release_id} - wants={wants}, haves={haves}")
+
+    # Create a dict-like result for backward compatibility
+    result_dict = {
+        'wants': wants,
+        'haves': haves,
+        'data': result.data,
+    }
+
+    # Save to database
+    try:
+        Record.objects.get_or_create(
+            discogs_id=str(release_id),
+            defaults={
+                'title': result.data.get('title', ''),
+                'artist': ', '.join(a.get('name', '') for a in result.data.get('artists', [])),
+                'year': result.data.get('year'),
+                'genres': result.data.get('genres', []),
+                'styles': result.data.get('styles', []),
+                'label': result.data.get('labels', [{}])[0].get('name', '') if result.data.get('labels') else '',
+                'country': result.data.get('country', ''),
+                'format': result.data.get('formats', [{}])[0].get('name', '') if result.data.get('formats') else '',
+                'master_id': result.data.get('master_id'),
+                'wants': wants,
+                'haves': haves,
+                'added': timezone.now(),
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save record {release_id} to database: {e}")
+
+    return result_dict
+
+
+
+# ==============================================================================
+# Preprocessing
+# ==============================================================================
+
+def fix_genres(genres):
+    fixed = []
+    for g in genres:
+        if isinstance(g, str) and g.startswith('['):
+            try:
+                parsed = json.loads(g)
+                if isinstance(parsed, list):
+                    fixed.extend(parsed)
+                else:
+                    fixed.append(str(parsed))
+            except (json.JSONDecodeError, TypeError):
+                fixed.append(g)
+        else:
+            fixed.append(g)
+    return fixed
+
+
+def normalize_records(records):
+    for rec in records:
+        rec['genre'] = fix_genres(rec.get('genre', []))
+        for field in ['label', 'artist', 'country', 'year', 'master_id',
+                      'catalog_number', 'release_id', 'title']:
+            if rec.get(field) is None:
+                rec[field] = ''
+            rec[field] = str(rec[field])
+
+
+def sanitize_name(s):
+    return re.sub(r'[^a-zA-Z0-9_]', '_', s)
+
+
+# ==============================================================================
+# Feature Engineering
+# ==============================================================================
+
+def compute_encodings(records, labels, smooth=20):
+    gm = float(np.mean(labels))
+    encodings, counts = {}, {}
+    for field in ['label', 'artist', 'country']:
+        cnt, sm = defaultdict(int), defaultdict(float)
+        for r, y in zip(records, labels):
+            cnt[r[field]] += 1
+            sm[r[field]] += float(y)
+        encodings[field] = {k: (sm[k] + smooth * gm) / (cnt[k] + smooth) for k in cnt}
+        counts[field] = dict(cnt)
+    return encodings, counts, gm
+
+
+def build_config(records):
+    all_genres = sorted(set(g for r in records for g in r.get('genre', [])))
+    sc = Counter()
+    for r in records:
+        for s in r.get('style', []):
+            if len(s) > 1:
+                sc[s] += 1
+    all_styles = sorted(s for s, c in sc.items() if c >= 10)
+    return {
+        'all_genres': all_genres,
+        'all_styles': all_styles,
+        'genre_idx': {g: i for i, g in enumerate(all_genres)},
+        'style_idx': {s: i for i, s in enumerate(all_styles)},
+    }
+
+
+def build_features(records, enc, cnt, gm, cfg, mask_l=None, mask_a=None):
+    n = len(records)
+    le, ae, ce = enc['label'], enc['artist'], enc['country']
+    lc, ac = cnt['label'], cnt['artist']
+    gi, si = cfg['genre_idx'], cfg['style_idx']
+    ag, ast = cfg['all_genres'], cfg['all_styles']
+
+    f = {}
+    ya = np.zeros(n)
+    for i, r in enumerate(records):
+        try:
+            ya[i] = int(r['year']) if r['year'] else 0
+        except:
+            ya[i] = 0
+    f['year'] = ya
+    f['has_year'] = (ya > 0).astype(float)
+    f['country_enc'] = np.array([ce.get(r['country'], gm) for r in records])
+    f['empty_country'] = np.array([1.0 if r['country'] == '' else 0.0 for r in records])
+
+    la = np.zeros(n); aa = np.zeros(n)
+    kl = np.ones(n); ka = np.ones(n)
+    lca = np.zeros(n); aca = np.zeros(n)
+    for i, r in enumerate(records):
+        if mask_l is not None and mask_l[i]:
+            la[i] = gm; kl[i] = 0; lca[i] = 0
+        else:
+            la[i] = le.get(r['label'], gm)
+            kl[i] = 1.0 if r['label'] in le else 0.0
+            lca[i] = lc.get(r['label'], 0)
+        if mask_a is not None and mask_a[i]:
+            aa[i] = gm; ka[i] = 0; aca[i] = 0
+        else:
+            aa[i] = ae.get(r['artist'], gm)
+            ka[i] = 1.0 if r['artist'] in ae else 0.0
+            aca[i] = ac.get(r['artist'], 0)
+
+    f['label_enc'] = la; f['artist_enc'] = aa
+    f['known_label'] = kl; f['known_artist'] = ka
+    f['label_count'] = lca.astype(float); f['artist_count'] = aca.astype(float)
+    f['n_genres'] = np.array([len(r.get('genre', [])) for r in records], dtype=float)
+    f['n_styles'] = np.array([len(r.get('style', [])) for r in records], dtype=float)
+    f['has_master'] = np.array([
+        1.0 if r.get('master_id', '0') not in ('0', '') else 0.0
+        for r in records
+    ])
+
+    gm_ = np.zeros((n, len(ag))); sm_ = np.zeros((n, len(ast)))
+    for i, r in enumerate(records):
+        for g in r.get('genre', []):
+            if g in gi: gm_[i, gi[g]] = 1
+        for s in r.get('style', []):
+            if s in si: sm_[i, si[s]] = 1
+    for g in ag:
+        f[f'genre_{sanitize_name(g)}'] = gm_[:, gi[g]]
+    for s in ast:
+        f[f'style_{sanitize_name(s)}'] = sm_[:, si[s]]
+    return pd.DataFrame(f)
+
+
+# ==============================================================================
+# Model Training with Augmentation
+# ==============================================================================
+
+def train_model(training, y_train, enc, cnt, gm, cfg):
+    np.random.seed(42)
+    n = len(training)
+    versions = [build_features(training, enc, cnt, gm, cfg)]
+    for ma_r, ml_r in [(0.35, 0.0), (0.0, 0.20), (0.50, 0.15)]:
+        ma = np.random.random(n) < ma_r if ma_r > 0 else None
+        ml = np.random.random(n) < ml_r if ml_r > 0 else None
+        versions.append(build_features(training, enc, cnt, gm, cfg, mask_l=ml, mask_a=ma))
+
+    X = pd.concat(versions, ignore_index=True)
+    y = np.tile(y_train, len(versions))
+
+    model = lgb.LGBMClassifier(
+        n_estimators=500, learning_rate=0.05, num_leaves=63, max_depth=8,
+        min_child_samples=30, subsample=0.8, colsample_bytree=0.8,
+        reg_alpha=0.1, reg_lambda=0.1, random_state=42, verbose=-1,
+        is_unbalance=True,
+    )
+    model.fit(X, y)
+    return model
+
+
+# ==============================================================================
+# API Calibration
+# ==============================================================================
+
+def calibrate_thresholds(catalog, cat_proba, api_client, budget=350):
+    """
+    Sample catalog records across probability spectrum.
+    Compute cumulative positive rate above each threshold.
+    Find the lowest threshold where cumulative precision >= 90%.
+    """
+    api_calls = 0
+    verified = {}
+    np.random.seed(42)
+
+    # Heavy sampling near likely thresholds (0.5-0.9)
+    bins = [
+        (0.00, 0.10, 15), (0.10, 0.20, 12), (0.20, 0.30, 12),
+        (0.30, 0.40, 15), (0.40, 0.50, 20), (0.50, 0.55, 25),
+        (0.55, 0.60, 25), (0.60, 0.65, 30), (0.65, 0.70, 30),
+        (0.70, 0.75, 30), (0.75, 0.80, 30), (0.80, 0.85, 25),
+        (0.85, 0.90, 25), (0.90, 0.95, 20), (0.95, 1.01, 20),
+    ]
+
+    for low, high, n_target in bins:
+        if api_calls >= budget:
+            break
+        mask = (cat_proba >= low) & (cat_proba < high)
+        indices = np.where(mask)[0]
+        if len(indices) == 0:
+            continue
+        n_sample = min(n_target, len(indices), budget - api_calls)
+        sampled = np.random.choice(indices, size=n_sample, replace=False)
+        for idx in sampled:
+            if api_calls >= budget:
+                break
+            rid = int(catalog[idx]['release_id'])
+            if rid in verified:
+                continue
+            try:
+                result = get_release_logged(rid)
+                verified[rid] = {
+                    'wants': result['wants'],
+                    'haves': result['haves'],
+                    'positive': result['wants'] > result['haves'],
+                    'prob': float(cat_proba[idx]),
+                    'idx': int(idx),
+                }
+                api_calls += 1
+            except Exception:
+                pass
+
+    if len(verified) < 20:
+        return 0.76, 0.40, verified, api_calls
+
+    probs = np.array([v['prob'] for v in verified.values()])
+    labels = np.array([v['positive'] for v in verified.values()])
+
+    # Find LOWEST positive threshold where cumulative precision >= 90%
+    # Sweep from high to low
+    best_pos_t = 0.76  # default
+    for t in np.arange(0.95, 0.35, -0.01):
+        above = labels[probs > t]
+        if len(above) >= 8:
+            precision = above.mean()
+            if precision >= 0.90:
+                best_pos_t = t
+            else:
+                # Once precision drops below 90%, we found our threshold
+                if best_pos_t < 0.76:  # Already found a valid threshold
+                    break
+
+    # Find HIGHEST negative threshold where neg precision >= 90%
+    best_neg_t = 0.40  # default
+    for t in np.arange(0.05, 0.60, 0.01):
+        below = labels[probs < t]
+        if len(below) >= 8:
+            neg_precision = 1.0 - below.mean()
+            if neg_precision >= 0.90:
+                best_neg_t = t
+            else:
+                break
+
+    # Safety bounds and coverage check
+    best_pos_t = max(0.40, min(0.85, best_pos_t))
+    best_neg_t = max(0.10, min(0.60, best_neg_t))
+
+    # Ensure gap isn't too small for coverage
+    if best_neg_t >= best_pos_t:
+        mid = (best_pos_t + best_neg_t) / 2
+        best_pos_t = mid + 0.03
+        best_neg_t = mid - 0.03
+
+    return best_pos_t, best_neg_t, verified, api_calls
+
+
+# ==============================================================================
+# Propagation
+# ==============================================================================
+
+def propagate_master_id(catalog, cat_proba, verified, api_client,
+                        max_calls=350, pos_t=0.76, neg_t=0.40):
+    api_calls = 0
+    propagated = {}
+
+    master_groups = defaultdict(list)
+    id_to_idx = {}
+    for idx, r in enumerate(catalog):
+        rid = int(r['release_id'])
+        id_to_idx[rid] = idx
+        mid = r.get('master_id', '0')
+        if mid not in ('0', ''):
+            master_groups[mid].append(idx)
+
+    # Propagate from verified
+    verified_masters = defaultdict(list)
+    for rid, v in verified.items():
+        idx = id_to_idx.get(int(rid))
+        if idx is not None:
+            mid = catalog[idx].get('master_id', '0')
+            if mid not in ('0', ''):
+                verified_masters[mid].append(v)
+
+    for mid, vlist in verified_masters.items():
+        if mid not in master_groups:
+            continue
+        labels_set = set(v['positive'] for v in vlist)
+        if len(labels_set) == 1:
+            label = list(labels_set)[0]
+            for idx in master_groups[mid]:
+                rid = int(catalog[idx]['release_id'])
+                if rid not in verified:
+                    p = cat_proba[idx]
+                    if label and p > neg_t * 0.5:
+                        propagated[rid] = True
+                    elif not label and p < 1.0 - (1.0 - pos_t) * 0.5:
+                        propagated[rid] = False
+
+    # Query large unresolved groups
+    unresolved = []
+    for mid, indices in master_groups.items():
+        if mid in verified_masters or len(indices) < 2:
+            continue
+        avg_p = np.mean([cat_proba[i] for i in indices])
+        uncertainty = 1.0 - abs(avg_p - (pos_t + neg_t) / 2) * 2
+        score = len(indices) * max(0.1, uncertainty)
+        unresolved.append((score, mid, indices, avg_p))
+    unresolved.sort(reverse=True)
+
+    for _, mid, indices, avg_p in unresolved:
+        if api_calls >= max_calls:
+            break
+        best_idx = min(indices, key=lambda i: abs(cat_proba[i] - avg_p))
+        rid = int(catalog[best_idx]['release_id'])
+        if rid in verified or rid in propagated:
+            continue
+        try:
+            result = get_release_logged(rid)
+            is_pos = result['wants'] > result['haves']
+            verified[rid] = {
+                'wants': result['wants'], 'haves': result['haves'],
+                'positive': is_pos, 'prob': float(cat_proba[best_idx]),
+            }
+            api_calls += 1
+            for idx in indices:
+                srid = int(catalog[idx]['release_id'])
+                if srid != rid and srid not in verified and srid not in propagated:
+                    p = cat_proba[idx]
+                    if is_pos and p > neg_t * 0.5:
+                        propagated[srid] = True
+                    elif not is_pos and p < 1.0 - (1.0 - pos_t) * 0.5:
+                        propagated[srid] = False
+        except Exception:
+            pass
+
+    return verified, propagated, api_calls
+
+
+def propagate_labels(catalog, cat_proba, verified, propagated, api_client,
+                     max_calls=200, pos_t=0.76, neg_t=0.40):
+    api_calls = 0
+    label_groups = defaultdict(list)
+    for idx, r in enumerate(catalog):
+        rid = int(r['release_id'])
+        if rid in verified or rid in propagated:
+            continue
+        if neg_t <= cat_proba[idx] <= pos_t:
+            label_groups[r.get('label', '')].append(idx)
+
+    sorted_labels = sorted(label_groups.items(), key=lambda x: -len(x[1]))
+    np.random.seed(789)
+
+    for label, indices in sorted_labels:
+        if api_calls >= max_calls or len(indices) < 2:
+            break
+        query_idx = indices[np.random.randint(len(indices))]
+        rid = int(catalog[query_idx]['release_id'])
+        if rid in verified:
+            continue
+        try:
+            result = get_release_logged(rid)
+            is_pos = result['wants'] > result['haves']
+            verified[rid] = {
+                'wants': result['wants'], 'haves': result['haves'],
+                'positive': is_pos, 'prob': float(cat_proba[query_idx]),
+            }
+            api_calls += 1
+            for idx in indices:
+                srid = int(catalog[idx]['release_id'])
+                if srid not in verified and srid not in propagated:
+                    pdiff = abs(cat_proba[idx] - cat_proba[query_idx])
+                    if pdiff < 0.12:
+                        propagated[srid] = is_pos
+        except Exception:
+            pass
+
+    return verified, propagated, api_calls
+
+
+# ==============================================================================
+# Main Pipeline
+# ==============================================================================
+
+def load_training_data():
+    with open('enriched_training.json') as f:
+        training = json.load(f)
+    normalize_records(training)
+    y = np.array([int(int(r['wants']) > int(r['haves'])) for r in training])
+    return training, y
+
+
+def classify_catalog(catalog):
+    total = len(catalog)
+    normalize_records(catalog)
+
+    # Step 1: Train augmented model
+    training, y_train = load_training_data()
+    enc, cnt, gm = compute_encodings(training, y_train, smooth=20)
+    cfg = build_config(training + catalog)
+    model = train_model(training, y_train, enc, cnt, gm, cfg)
+
+    # Step 2: Score catalog
+    X_cat = build_features(catalog, enc, cnt, gm, cfg)
+    cat_proba = model.predict_proba(X_cat)[:, 1]
+
+    # Step 3: Calibrate thresholds
+    pos_t, neg_t, verified, cal_calls = calibrate_thresholds(
+        catalog, cat_proba, api_client, budget=350
+    )
+
+    # Step 4: Master_id propagation
+    remaining = 1000 - cal_calls
+    master_budget = min(350, remaining * 3 // 5)
+    verified, propagated, master_calls = propagate_master_id(
+        catalog, cat_proba, verified, api_client,
+        max_calls=master_budget, pos_t=pos_t, neg_t=neg_t,
+    )
+
+    # Step 5: Label propagation
+    remaining = 1000 - cal_calls - master_calls
+    verified, propagated, label_calls = propagate_labels(
+        catalog, cat_proba, verified, propagated, api_client,
+        max_calls=remaining, pos_t=pos_t, neg_t=neg_t,
+    )
+
+    total_api = cal_calls + master_calls + label_calls
+
+    # Step 6: Final classification
+    ruled_in = []
+    ruled_out = []
+
+    for idx in range(total):
+        rid = int(catalog[idx]['release_id'])
+        prob = cat_proba[idx]
+
+        if rid in verified:
+            if verified[rid]['positive']:
+                ruled_in.append(str(rid))
+            else:
+                ruled_out.append(str(rid))
+        elif rid in propagated:
+            if propagated[rid]:
+                ruled_in.append(str(rid))
+            else:
+                ruled_out.append(str(rid))
+        elif prob > pos_t:
+            ruled_in.append(str(rid))
+        elif prob < neg_t:
+            ruled_out.append(str(rid))
+
+    coverage = (len(ruled_in) + len(ruled_out)) / total
+
+    return {
+        'ruled_in': ruled_in,
+        'ruled_out': ruled_out,
+        'verified': [str(rid) for rid in verified.keys()],
+        'metadata': {
+            'api_calls_made': total_api,
+            'coverage_ratio': coverage,
+            'approach': (
+                f'Augmented LightGBM with feature masking for robustness. '
+                f'API-calibrated thresholds: pos={pos_t:.3f}, neg={neg_t:.3f}. '
+                f'{cal_calls} calibration + {master_calls} master_id + '
+                f'{label_calls} label prop = {total_api} total calls.'
+            ),
+            'high_threshold': pos_t,
+            'low_threshold': neg_t,
+            'calibration_calls': cal_calls,
+            'master_calls': master_calls,
+            'label_calls': label_calls,
+        }
+    }

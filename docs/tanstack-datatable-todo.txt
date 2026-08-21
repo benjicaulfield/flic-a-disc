@@ -1,0 +1,56 @@
+TANSTACK / SHADCN / TAILWIND DATA TABLE — BUILD CHECKLIST
+==========================================================
+
+SETUP
+[x] npm install @tanstack/react-table
+[x] Run: npx shadcn add table  (scaffolds src/components/ui/table.tsx)
+[x] Verify src/components/ui/table.tsx exists and imports correctly
+
+DEFINE COLUMN HELPER TYPE
+[x] Create src/components/DataTable/types.ts
+[x] Export a generic ColumnDef<T> re-export from @tanstack/react-table (or just use it directly)
+
+BUILD THE CORE DATATABLE COMPONENT
+[x] Create src/components/DataTable/DataTable.tsx
+[x] Accept generic props: data: T[], columns: ColumnDef<T>[]
+[x] Initialize useReactTable with getCoreRowModel
+[x] Render shadcn <Table>, <TableHeader>, <TableBody>
+[x] Map table.getHeaderGroups() → <TableRow> → <TableHead>
+[x] Map table.getRowModel().rows → <TableRow> → <TableCell>
+[x] Handle empty state: render a single full-width row with "No results"
+
+SORTING
+[ ] Add getSortedRowModel import and pass to useReactTable
+[ ] Add sorting state with useState<SortingState>
+[ ] Wire onSortingChange and state: { sorting }
+[ ] Make <TableHead> clickable via column.getToggleSortingHandler()
+[ ] Add up/down arrow icon (or ↑ ↓ ⇅) based on column.getIsSorted()
+
+FILTERING
+[ ] Add getFilteredRowModel import
+[ ] Add globalFilter state with useState<string>
+[ ] Wire onGlobalFilterChange and state: { globalFilter }
+[ ] Add a search <input> above the table bound to globalFilter
+
+PAGINATION
+[ ] Add getPaginationRowModel import
+[ ] Add pagination state with useState<PaginationState> (default pageIndex: 0, pageSize: 20)
+[ ] Wire onPaginationChange and state: { pagination }
+[ ] Add prev/next buttons using table.previousPage() / table.nextPage()
+[ ] Add table.canPreviousPage() / table.canNextPage() to disable buttons
+[ ] Show "Page X of Y" label
+[ ] Optionally add a page size selector
+
+COLUMN VISIBILITY
+[ ] Add columnVisibility state with useState<VisibilityState>
+[ ] Wire onColumnVisibilityChange and state: { columnVisibility }
+[ ] Add a dropdown (shadcn <DropdownMenu>) to toggle columns on/off
+
+STYLING
+[ ] Add className prop to DataTable for outer container overrides
+[ ] Add zebra striping or hover highlight via Tailwind on <TableRow>
+[ ] Make columns optionally pinnable or fixed-width via meta or size
+
+EXPORT
+[ ] Create src/components/DataTable/index.ts re-exporting DataTable
+[ ] Use it in one existing page (e.g. DiscogsSellerBrowse) as a smoke test
