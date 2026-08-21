@@ -9,6 +9,26 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Plain AlterField fails on Postgres here: the live column has
+        # DEFAULT ''::text, and '' is not a valid jsonb literal, so Postgres
+        # refuses to auto-cast the default. genres/styles on the same table
+        # already made this exact transition (text -> jsonb, default '[]');
+        # every existing format value is '' (confirmed in production), so
+        # collapsing blank -> [] is lossless.
+        migrations.RunSQL(
+            sql="""
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format DROP DEFAULT;
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format TYPE jsonb
+                    USING CASE WHEN format IS NULL OR format = '' THEN '[]'::jsonb
+                               ELSE to_jsonb(format) END;
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format SET DEFAULT '[]'::jsonb;
+            """,
+            reverse_sql="""
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format DROP DEFAULT;
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format TYPE text USING '';
+                ALTER TABLE discogs_discogsrecord ALTER COLUMN format SET DEFAULT ''::text;
+            """,
+        ),
         migrations.AlterField(
             model_name="record",
             name="format",
