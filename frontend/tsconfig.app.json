@@ -21,11 +21,10 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src", "../archive/frontend/src/pages/DiscogsBySeller.tsx", "../archive/frontend/src/pages/DiscogsCatalogCandidates.tsx"]
+  "include": ["src"]
 }

@@ -156,7 +156,7 @@ const DiscogsKnapsackComparison = () => {
           </div>
 
           {/* Detailed Item Listings */}
-          {comparisonData.map((session, sessionIdx) => (
+          {comparisonData.map((session) => (
             <div key={session.id} className="mb-8">
               <h3 className="text-lg font-bold mb-3 bg-gray-100 p-3 rounded">
                 {session.seller_name} ({new Date(session.created_at).toLocaleDateString()})

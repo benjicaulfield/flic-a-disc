@@ -53,29 +53,6 @@ export interface StatsData {
   ebay_total?: number;
 }
 
-interface Stats {
-  discogs: {
-    total: number;
-    evaluated: number;
-    keepers: number;
-    non_keepers: number;
-  };
-  ebay: {
-    total: number;
-    evaluated: number;
-    enriched: number;
-  };
-  training: {
-    instances: number;
-    batch_count: number;
-  };
-  model: {
-    stats: any;
-    vocab_size: number;
-    avg_accuracy: number | null;
-  };
-}
-
 export interface MLData {
   predictions: number[];
   mean_predictions: number[];

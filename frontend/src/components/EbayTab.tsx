@@ -30,7 +30,7 @@ interface EbayTabProps {
   storageKey: string;
 }
 
-export function EbayTab({ isActive, endpoint, refreshEndpoint, columns, title, storageKey }: EbayTabProps) {
+export function EbayTab({ isActive: _isActive, endpoint, refreshEndpoint, columns, title, storageKey }: EbayTabProps) {
   const [allResults, setAllResults] = useState<EbayListing[]>(() => {
     try {
       const raw = sessionStorage.getItem(storageKey);
