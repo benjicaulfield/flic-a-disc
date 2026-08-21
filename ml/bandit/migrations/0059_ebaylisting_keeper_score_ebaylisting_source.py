@@ -10,6 +10,19 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # Both columns already exist in production (added manually at some
+        # point outside Django's migrations, never recorded) but don't match
+        # what the model expects: keeper_score is nullable numeric with no
+        # default, source is nullable text with no default. ebay_listings
+        # has 0 rows in production right now, so there's no data to lose —
+        # drop the ad-hoc columns and let AddField recreate them correctly.
+        migrations.RunSQL(
+            sql="""
+                ALTER TABLE ebay_listings DROP COLUMN IF EXISTS keeper_score;
+                ALTER TABLE ebay_listings DROP COLUMN IF EXISTS source;
+            """,
+            reverse_sql=migrations.RunSQL.noop,
+        ),
         migrations.AddField(
             model_name='ebaylisting',
             name='keeper_score',
