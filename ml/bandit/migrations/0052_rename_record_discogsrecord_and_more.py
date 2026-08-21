@@ -34,9 +34,26 @@ class Migration(migrations.Migration):
             old_name='album',
             new_name='title',
         ),
-        migrations.RemoveField(
-            model_name='discogsseller',
-            name='shipping_min',
+        # Production's discogs_discogsseller table never actually has this
+        # column (confirmed: only id/name/currency exist) even though
+        # migration 0031 was recorded as applied — real schema drift, not
+        # a data problem. Plain RemoveField errors on the missing column;
+        # split state (Django's model history) from the DB op (a tolerant
+        # DROP COLUMN IF EXISTS) so this is correct everywhere regardless
+        # of whether a given database actually has the column.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(
+                    model_name='discogsseller',
+                    name='shipping_min',
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="ALTER TABLE discogs_discogsseller DROP COLUMN IF EXISTS shipping_min;",
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
         migrations.RemoveField(
             model_name='ebaylisting',
