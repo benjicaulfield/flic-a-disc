@@ -1,0 +1,613 @@
+FLIC-A-DISC — SPRINT V3
+
+Window: 2026-08-21 through 2026-09-29 (40 days)
+
+Starting point: July sprint (docs/july-sprint.txt) got dropped after Week 1 — real life got busy.
+Don't treat it as failed, treat it as paused; some of its Day 1-4 work actually landed even though
+the checklist wasn't updated. This doc supersedes it for planning purposes. july-sprint.txt is left
+untouched as a record.
+
+Marketplace is back in, scoped to a mock payment provider. It was tabled in the first draft of this
+doc for a straight 30-day window, then reinstated once the window moved to 40 days. Cost: 9 days
+(Days 22-30), matching the tighter of the two prior estimates. It comes after annotation, pricing,
+tab polish, and the flagship landing page — those are the daily-use fundamentals and they ship
+regardless of whether the marketplace week goes well.
+
+Dual goal: this needs to be both a tool you actually use daily and a very hireable portfolio piece.
+The marketplace week is where the hireability case gets its second flagship screen (the
+fee-transparency dashboard, "~3% vs Discogs' 11.2%") alongside the first one built in Week 3 (the
+live cross-source Max Bid landing page).
+
+How to use this doc: you run every command and write every line of code — this is a runbook, not a
+delegation list. Each day has the files involved, real commands (git, curl, test runners, systemd)
+wherever the shape is already knowable, and granular to-dos with exact function/endpoint names to
+mirror from existing code. Where something is greenfield (the marketplace), you get
+scaffolding-level to-dos and real tooling commands, not invented business logic — that part's yours
+to design.
+
+
+WHERE THINGS ACTUALLY STAND (audited 2026-08-21, updated during Day 1 work)
+
+The eBay pipeline is two-stage, not three, per the July 13 redesign: 10,000 raw listings →
+logistic-regression classifier scores all 10,000 → sorted by keeper_score → top 1,000 enriched via
+eBay API → cached. TF-IDF pre-filter was removed for causing recall failures. The classifier is
+real: 54,998 labeled listings, ~813 keepers (1.6% positive rate), ROC AUC 0.892, PR AUC 0.284,
+operating threshold 0.3.
+
+But backend/internal/handlers/ebay.go still carries the old three-stage skeleton (log lines
+literally say "Stage 1", "Stage 2", "Stage 3"). Stage 3 (~line 595-610) is dead code: it re-sorts
+already-scored listings by the Stage 1 score and calls it "final ranking."
+
+Discogs annotation (BySeller) is real and working, including the wantlist integration — correcting
+an earlier note in session-summary.txt that called this unbuilt. ml/bandit/views.py:1105
+(discogs_annotate) already calls authenticate_client() and discogs_identity.wantlist.add(release) /
+.remove(release) — real Discogs API calls, not a stub. Worth verifying end-to-end (Day 8) but the
+code exists.
+
+eBay annotation is more built than it looked from the Go side alone. ml/bandit/views.py:507
+(ebay_annotate, mounted at POST /ml/ebay/annotated/) already accepts {annotations: [{ebay_id,
+label}]} and updates EbayListing.wanted/evaluated. What's actually missing: (1) the Go route + a
+thin proxy handler — POST /api/ebay/annotate doesn't exist in main.go — mirroring
+DiscogsAnnotateHandler (discogs_byseller.go:63), which is itself just a ~25-line
+forward-the-request-body proxy to Django; (2) the frontend UI in EbayTab.tsx — the "Annotate" toggle
+button exists and does nothing else, no checkbox column, no submit; (3) ebay_annotate doesn't
+trigger any retraining, unlike discogs_annotate which calls trainer.update_model_online(...) when
+annotations carry a probability — that's real remaining work (Day 4).
+
+Pricing formula is stale in the file that exists for it. ml/bandit/utils/required_margin.py
+(untracked, sitting in the repo) implements the OLD sliding-margin formula that the July 13 session
+explicitly replaced for underpricing bids ($45 record → $18.71 max bid, rejected as untenable). The
+new formula — fraction = 0.75 - 0.273 * exp(-0.02 * sell_price); bid = sell_price * fraction -
+shipping — exists only in the session summary, not in code. Neither version is wired into any API
+payload or any of the three tabs yet.
+
+No scheduler exists. Nightly retrain (classifier + TF-IDF-for-Discogs + bandit) is fired by manual
+curl, not a cron job or systemd timer.
+
+The droplet was running February code, not anything current, until Day 1's reconciliation fixed it.
+deploy.sh does git reset --hard origin/main on the server. Local main and origin/main had diverged
+back in Jan/Mar 2026 — traced during Day 1: local main was hard-reset to bb68a7d (Jan 7) at some
+point after Mar 25, discarding ~24 commits' worth of shared history, then a single giant commit
+(c52f77e, "functioning stopping place," 577 files, +23M lines — mostly the ml/catalog/archive data
+dumps) landed June 29 with no further pushes since. origin/main's ebay.go didn't even have the
+classifyListings function — everything from the March-onward classifier redesign had never been
+deployed.
+
+Day 1 reconciliation: DONE. Full 22-file diff audit confirmed origin had nothing local didn't
+already supersede or contain under a renamed path (python_services/ → ml/, handlers.go → split into
+todos.go/discogs_knapsack.go/discogs_ranking.go/discogs_annotation.go, interfaces.ts → split into
+types/*.ts). Tagged origin's old tip as pre-reconcile-backup (3241468, permanently recoverable).
+Force-pushed local over origin. Along the way, the push was rejected for oversized files — the giant
+June 29 commit had added ml/bandit/data/lp_catalog.json (983MB!),
+ml/catalog/data/signal_records.jsonl (169MB), ml/catalog/data/lp_catalog_enriched.json (141MB), and
+a duplicated RAG chroma db (60MB) straight into git. Fixed by resetting to bb68a7d, excluding those
+paths via .gitignore (ml/catalog/, ml/bandit/data/lp_catalog.json, archive/ml/rag/), and
+recommitting clean (373 files, 230K insertions instead of 23M). Also found and stripped a stray 36MB
+compiled Go binary (backend/api) that had been committed by accident — gitignored backend/api and
+backend/flic-go going forward. Final push succeeded: origin/main and local main both now at 3e5d524.
+
+deploy.sh builds the wrong binary path on both sides of the divergence — go build -o flic-go
+./cmd/server, but the actual entrypoint is backend/cmd/api/main.go. Not a reconciliation risk, just
+a real bug that predates the split and needs fixing (Day 20).
+
+UserDashboard.tsx is a Trello-style kanban plus a recharts performance line chart plus a stats
+block, behind /dashboard — the post-login default route, but not part of the daily workflow.
+
+The marketplace is 0% built.
+
+docs/README.md is not a project README — it's a leftover take-home-exercise spec that happens to be
+sitting at that path.
+
+
+NORTH STAR
+
+You use BySeller, Auction, and BuyItNow every day. This sprint makes those three tabs excellent,
+makes the site trustworthy in production, retires the dashboard nobody uses in favor of a flagship
+landing page, then builds the marketplace for a second flagship screen, and closes with the honest
+package: real numbers, green CI, an architecture diagram, a case study, a demo. Every week ladders
+up to one sentence: "I built a marketplace, a daily buy-recommendation tool I use myself, and a
+margin-aware recommender — and here are the numbers."
+
+
+WEEK 1 (Aug 21-27) — CLOSE THE ANNOTATION LOOP
+
+Day 1 (Aug 21) — Repo reconciliation and droplet checkpoint
+
+Files: none (git operations), .gitignore, backend/cmd/api/main.go (read, checking for a health
+route)
+
+[x] Find the fork point: git merge-base main origin/main → bb68a7d
+[x] Audit all 22 files origin and local both touched since the fork — verdict: origin had nothing
+    local didn't already supersede or contain under a renamed path.
+[x] Tag origin's old tip as a permanent backup: git tag pre-reconcile-backup origin/main
+[x] Force-push local's history over origin's: git push origin main --force-with-lease
+[x] Hit a GitHub file-size rejection (giant catalog data dumps + a stray binary committed in the
+    June 29 snapshot). Fixed by resetting to bb68a7d, gitignoring the offending paths, recommitting
+    clean, and re-pushing. origin/main and local main both confirmed at 3e5d524.
+[ ] Triage the remaining untracked pile — decide commit vs. gitignore per item:
+    git status --porcelain | grep '^??'
+    New Django migrations (0053-0058), EbayFirstPassModel, required_margin.py, new management commands → commit, real code.
+    New CSV scrapes (backend/ebay_auctions_2026-07-*.csv etc.) → gitignore, they're runtime output:
+    echo "backend/ebay_*.csv" >> .gitignore
+    git add .gitignore
+    git commit -m "chore: ignore eBay scrape CSV output"
+[ ] Re-confirm droplet health beyond the root/auth check already done. Note: main.go doesn't
+    currently register a dedicated health route (checked — only /api/auth/*, /api/todos/recent, and
+    the protected group exist), so hit something real for now and consider adding a proper
+    /api/health while you're in the file anyway:
+    curl -sS -o /dev/null -w "%{http_code}\n" https://flic-a-disc.com/api/auth/me
+    ssh root@138.197.153.128 "systemctl status flic-go --no-pager -l | head -10"
+    ssh root@138.197.153.128 "systemctl status flic-django --no-pager -l | head -10"
+
+Day 2 (Aug 22) — POST /api/ebay/annotate (thin proxy, not new logic)
+
+Files: backend/internal/handlers/ebay.go (add handler), backend/cmd/api/main.go (register route)
+
+Django already does the real work — ebay_annotate (ml/bandit/views.py:507) updates
+EbayListing.wanted/evaluated from {annotations: [{ebay_id, label}]}. This is purely wiring a Go
+proxy in front of it, same shape as DiscogsAnnotateHandler (discogs_byseller.go:63).
+
+[ ] Read DiscogsAnnotateHandler as the template: reads the raw request body, POSTs it unmodified to
+    h.GetMLURL()+"/ml/discogs/annotate/", pipes the status code and body straight back.
+[ ] Add an equivalent method on EbayHandler in ebay.go — e.g. AnnotateHandler — using the same mlURL
+    := os.Getenv("ML_SERVICE_URL") fallback pattern already in classifyListings (ebay.go:474),
+    POSTing to mlURL+"/ml/ebay/annotated/".
+[ ] Register it in main.go's protected group, next to the other /ebay/ routes (~line 84-87):
+    protected.POST("/ebay/annotate", ebayHandler.AnnotateHandler)
+[ ] Build check:
+    cd backend && go build ./...
+[ ] Test it directly against a real row, bypassing the frontend (grab a real ebay_id from the DB
+    first):
+    cd ml && uv run python manage.py shell -c "from bandit.models import EbayListing; print(EbayListing.objects.first().ebay_id)"
+    curl -X POST http://localhost:8080/api/ebay/annotate -H "Content-Type: application/json" -b "<your session cookie — copy from browser devtools after logging in locally>" -d '{"annotations":[{"ebay_id":"<id from above>","label":true}]}'
+[ ] Confirm the write landed:
+    cd ml && uv run python manage.py shell -c "from bandit.models import EbayListing; l=EbayListing.objects.get(ebay_id='<id>'); print(l.evaluated, l.wanted)"
+
+Day 3 (Aug 23) — Wire the EbayTab annotation UI
+
+Files: frontend/src/components/EbayTab.tsx
+
+[ ] Add annotation state keyed by ebay_id, mirroring BySeller.tsx's Record<number, Annotation>
+    pattern (BySeller.tsx:29) — here it's simpler, just Record<string, boolean>.
+[ ] Add a checkbox column, rendered when annotating is true — look at how BySeller.tsx injects its
+    keeper/wantlist columns (renderAnnotationCell, lines 42-68) for the pattern, though eBay only
+    needs one boolean per row, not two.
+[ ] Add a Submit button next to the existing Annotate toggle (EbayTab.tsx:93-102), disabled when no
+    annotations are set, calling a new submitAnnotations function.
+[ ] Payload shape must match Django's ebay_annotate exactly: { annotations: allResults.map(r => ({
+    ebay_id: r.ebay_id, label: annotations[r.ebay_id] ?? false })) }. Unclicked-but-shown rows
+    submit label: false — explicit negative, same rule BySeller enforces (see the comment at
+    BySeller.tsx:187-189).
+[ ] Wire submit to POST /api/ebay/annotate (Day 2), display the response's keepers/non_keepers
+    counts.
+[ ] Run the frontend locally while testing:
+    cd frontend && npm run dev
+[ ] Manual test: load Auction, toggle Annotate, check a couple of boxes, Submit, confirm the count
+    message renders and the DB rows update. Repeat on BuyItNow — same component, confirm it's
+    genuinely one implementation not two.
+
+Day 4 (Aug 24) — Add retrain-on-annotate for eBay (the real remaining gap)
+
+Files: ml/bandit/views.py (ebay_annotate, line 507), wherever the eBay classifier training lives
+(locate it, see below)
+
+ebay_annotate updates rows but never touches the model — unlike discogs_annotate, which calls
+trainer.update_model_online(training_instances) (views.py:1195). The eBay classifier is a
+scikit-learn logistic regression (per the session summary), not the neural bandit trainer, so it
+needs its own update path.
+
+[ ] Locate the eBay classifier's training/persistence code:
+    grep -rn "LogisticRegression\|partial_fit\|joblib\|EbayFirstPassModel" ml/bandit/*.py ml/bandit/**/*.py
+[ ] Decide: incremental (partial_fit, if the estimator supports it) vs. a synchronous full retrain
+    from DB/CSV. Time the existing full-retrain path first — if it's seconds, synchronous-on-submit
+    is fine; if it's real time, don't block the annotate request on it.
+    time uv run python manage.py <whatever the existing retrain management command or script is called>
+[ ] Wire the chosen path into ebay_annotate after its per-listing loop, mirroring the training block
+    already in discogs_annotate (views.py:1195-1201) — return training status (accuracy/threshold if
+    available) in the response JSON, same shape discogs_annotate uses, so EbayTab.tsx can surface it
+    the way BySeller.tsx does (BySeller.tsx:224-227).
+[ ] Re-run Day 3's manual test, confirm the response now includes a training block.
+
+Day 5 (Aug 25) — Fix the pricing formula
+
+Files: ml/bandit/utils/required_margin.py
+
+[ ] Replace the old fee-rate-based formula with the July 13 one:
+    def max_bid(sell_price, shipping=6.00):
+        fraction = 0.75 - 0.273 * math.exp(-0.02 * sell_price)
+        return sell_price * fraction - shipping
+    Delete the old required_margin/floor/ceiling/decay version — don't leave two formulas in the file.
+[ ] Sanity-check against the four calibration points from the session summary:
+    cd ml && uv run python -c "
+    from bandit.utils.required_margin import max_bid
+    for p in [30, 45, 100, 200]:
+        print(p, round(max_bid(p), 2))
+    "
+    expect roughly: 30->12, 45->22.76, 100->65.30, 200->143
+
+Day 6 (Aug 26) — Surface max_bid in the UI
+
+Files: backend/internal/handlers/ebay.go, backend/internal/handlers/discogs_byseller.go (payload
+construction), backend/internal/models/models.go (response struct),
+frontend/src/components/EbayTab.tsx, frontend/src/features/deck/tabs/BySeller.tsx (columns)
+
+[ ] Add MaxBid (and Spread) fields to the relevant Go response struct(s) in models.go.
+[ ] Either call the Python max_bid function via the existing ML-service HTTP round trip (cheapest:
+    have Django include it in the classify/by-seller response payload), or port the same formula to
+    Go if you want it computed without a network hop — pick one, don't maintain two implementations
+    of the same formula in two languages long-term without a plan to keep them in sync.
+[ ] Add a Max Bid column to EbayTab.tsx's baseEbayColumns (shared by Auction and BuyItNow) and to
+    BySeller.tsx's columns array.
+[ ] Manual test: confirm a real listing shows a sane Max Bid matching Day 5's sanity check.
+
+Day 7 (Aug 27) — Week 1 checkpoint
+
+[ ] Full loop test: browse a live Auction or BuyItNow result set, annotate a batch, confirm rows
+    land in the DB, confirm Max Bid is visible on every listing across all three tabs.
+[ ] One sentence for the record: "Annotation and pricing are live on every daily-use tab, not just
+    Discogs."
+
+
+WEEK 2 (Aug 28-Sep 3) — REFINE THE THREE TABS
+
+Day 8 (Aug 28) — Verify the Discogs wantlist integration (not build it)
+
+Files: ml/bandit/views.py (discogs_annotate, ~lines 1118-1188)
+
+Correction from the earlier audit: this already calls authenticate_client() and
+discogs_identity.wantlist.add(release)/.remove(release) — real, not a stub.
+
+[ ] Find authenticate_client's definition and confirm it has live credentials configured:
+    grep -rn "def authenticate_client" ml/
+    Check whatever token/credentials file it reads (likely ml/discogs_token.json, visible in the repo tree) actually exists and isn't expired.
+[ ] Manual test: annotate one real record from BySeller with the wantlist box checked, then check
+    discogs.com directly to confirm it appears in your real wantlist.
+[ ] If it works cleanly: this day is done in under an hour. Use the rest as slack, or pull Day 12
+    (shared visual system) forward.
+[ ] If it silently fails: check the errors array in the annotate response and the server-side
+    print(f"discogs_annotate: could not update wantlist...") log (views.py:1186) — most likely cause
+    is a stale/expired token, not missing code.
+
+Day 9 (Aug 29) — BySeller polish
+
+Files: frontend/src/features/deck/tabs/BySeller.tsx
+
+[ ] Visual pass — spacing, typography, empty/loading state — this is your reference tab, bring the
+    other two up to it, not the reverse.
+[ ] Sweep for console.log:
+    grep -n "console.log" frontend/src/features/deck/tabs/BySeller.tsx
+
+Day 10 (Aug 30) — Auction tab beauty pass
+
+Files: frontend/src/features/deck/tabs/Auction.tsx, frontend/src/components/EbayTab.tsx
+
+[ ] Match BySeller's spacing/typography bar; lay out the new Max Bid and annotation columns cleanly
+    rather than bolted on at the end.
+[ ] Consider surfacing time-remaining on auctions, given the 24h scrape window (ebay.go's auction
+    fetch already filters itemEndDate:[..now+24h] — the data exists, just isn't shown).
+
+Day 11 (Aug 31) — BuyItNow tab beauty pass
+
+Files: frontend/src/features/deck/tabs/BuyItNow.tsx
+
+[ ] Same bar as Auction. Confirm Price (not CurrentBidPrice) is unambiguously the number shown — the
+    Go handler already has source-specific price logic (BIN uses item.Price only), just make sure
+    the UI doesn't blur that distinction.
+
+Day 12 (Sep 1) — Shared visual system
+
+Files: frontend/src/components/EbayTab.tsx, frontend/src/components/DataTable/DataTable.tsx
+
+[ ] Pull whatever's now duplicated across the three tabs (column styling, badge/score display, empty
+    states) into shared pieces rather than three copies drifting apart.
+[ ] One deliberate look-and-feel decision for the whole Deck shell.
+
+Day 13 (Sep 2) — Error and edge states
+
+[ ] Every tab: empty result sets, failed scrapes, zero annotations submitted, null/undefined price
+    or score fields. money() and joinList() (features/deck/utils.ts) should already guard most of
+    this — verify with a quick manual check rather than assuming:
+    grep -n "export function money\|export function joinList" frontend/src/features/deck/utils.ts
+
+Day 14 (Sep 3) — Week 2 checkpoint
+
+[ ] Screenshot all three tabs side by side — they should read as one product.
+[ ] npm run lint and tsc --noEmit clean before calling this done:
+    cd frontend && npm run lint && npx tsc --noEmit
+
+
+WEEK 3 (Sep 4-10) — THE FIRST FLAGSHIP SCREEN, AND PRODUCTION PLUMBING
+
+Day 15 (Sep 4) — Dashboard autopsy
+
+Files: frontend/src/pages/UserDashboard.tsx
+
+[ ] Go piece by piece: kanban todos, recharts performance line, stats block. Decide per piece:
+    relocate or cut.
+    wc -l frontend/src/pages/UserDashboard.tsx
+    grep -n "useState\|useEffect" frontend/src/pages/UserDashboard.tsx | head -30
+    (Orient yourself on how much state/logic is actually load-bearing before deciding what survives.)
+
+Day 16 (Sep 5) — Build the new landing page — flagship screen #1
+
+Files: new component (e.g. frontend/src/pages/Landing/BuyList.tsx or replace UserDashboard.tsx in
+place — your call), frontend/src/App.tsx (route)
+
+[ ] Design and build a live, ranked, cross-source Max Bid/margin view — top current candidates
+    across Auction, BuyItNow, and Discogs by-seller in one place, ranked by spread/confidence.
+[ ] This needs data from three different endpoints (api/ebay/auctions, api/ebay/buyitnows,
+    api/discogs/by-seller/saved) merged client-side, or a new aggregating Go endpoint if merging
+    three fetches client-side gets messy — your call based on how it feels once you try the
+    client-side version first (cheaper to build, easy to upgrade later).
+[ ] Below/beside it: quick entry points into the three tabs, last-scrape-time per source, cached
+    listing counts.
+
+Day 17 (Sep 6) — Fold in the stats worth keeping
+
+[ ] Whatever survived Day 15's autopsy gets a small, honest home on the new landing page. Resist
+    rebuilding the old dashboard's density.
+
+Day 18 (Sep 7) — Route cleanup
+
+Files: frontend/src/App.tsx
+
+[ ] Confirm /dashboard serves the new page cleanly for authenticated users, nothing orphaned:
+    grep -n "dashboard\|UserDashboard" frontend/src/App.tsx
+
+Day 19 (Sep 8) — Kill the vestigial Stage 3
+
+Files: backend/internal/handlers/ebay.go (~lines 515-620)
+
+[ ] Remove/rename the dead Stage 3 re-sort and its log lines so they describe what actually happens
+    (a two-stage pipeline).
+    grep -n "Stage 1\|Stage 2\|Stage 3" backend/internal/handlers/ebay.go
+[ ] Build + test after:
+    cd backend && go build ./... && go vet ./...
+
+Day 20 (Sep 9) — Fix deploy.sh
+
+Files: deploy.sh
+
+[ ] Correct the build line:
+    deploy.sh currently has:  /usr/local/go/bin/go build -o flic-go ./cmd/server
+    change to:                /usr/local/go/bin/go build -o flic-go ./cmd/api
+[ ] Verify against what the flic-go systemd unit actually expects to run:
+    ssh root@138.197.153.128 "systemctl cat flic-go"
+[ ] Dry-run a full deploy end to end (this is the first real deploy since February — expect it to
+    surface things):
+    ./deploy.sh
+[ ] Confirm the new code is live:
+    curl -sS https://flic-a-disc.com/api/auth/me
+    ssh root@138.197.153.128 "cd /opt/flic-a-disc && git log --oneline -1"
+
+Day 21 (Sep 10) — Week 3 checkpoint
+
+[ ] Confirm the new landing page is live on the droplet, deploy.sh ran clean with no manual
+    intervention.
+[ ] Screenshot the new landing page next to the old dashboard — the before/after for the case study.
+
+
+WEEK 4 (Sep 11-19) — THE MARKETPLACE
+
+Greenfield from here — scaffolding-level to-dos and real tooling commands, not invented business
+logic. Django app: decide whether this lives inside ml/bandit/ or as a new Django app (python
+manage.py startapp marketplace) — a new app is probably cleaner given how large bandit already is.
+
+Day 22 (Sep 11) — Domain model and fee engine
+
+Files: new Django models, new Go models (mirrored) or Go-proxies-to-Django only (pick one
+architecture and stay consistent with how the rest of the app splits Go/Django responsibility — Go
+currently proxies to Django for most write paths, per Day 2's finding, so probably do the same here
+rather than duplicating models in both languages)
+
+[ ] Scaffold the app:
+    cd ml && uv run python manage.py startapp marketplace
+[ ] Models: SellerAccount, MarketplaceListing, Order, Transaction, Payout, OverheadLedger.
+[ ] Fee engine as a pure function, unit-tested first, before any endpoint exists:
+    cd ml && uv run pytest marketplace/tests/test_fee_engine.py -v
+    Worked example to hardcode as a test case: 1,000 txns/mo, $50 avg, $600 overhead → ~$1.575/txn ≈ 3.15%.
+[ ] PaymentProvider interface + mock implementation, unit-tested in isolation from any HTTP layer.
+[ ] Migration:
+    cd ml && uv run python manage.py makemigrations marketplace
+    uv run python manage.py migrate
+
+Day 23 (Sep 12) — Seller onboarding
+
+Files: marketplace/views.py, marketplace/urls.py, new frontend page
+
+[ ] POST /ml/marketplace/sellers/ (Django) → Go proxy POST /api/marketplace/sellers (same thin-proxy
+    pattern as Day 2).
+[ ] Seller dashboard page: status, listings, sales, payouts, effective-rate widget.
+[ ] Import from existing Discogs seller inventory — reuse the scraper already powering BySeller
+    (backend/internal/handlers/discogs_byseller.go) to pre-populate MarketplaceListing drafts.
+
+Day 24 (Sep 13) — Listings and browse
+
+[ ] CRUD endpoints, auth-scoped to the owning seller.
+[ ] Postgres full-text search for browse (in the migration: add a GIN index on a to_tsvector(artist
+    || ' ' || title || ' ' || label) column).
+[ ] Rank browse results using the existing recommender (same model/endpoint the daily-use pipeline
+    already calls) — this is the "ML and platform become one system" moment, worth a specific note
+    in the eventual case study.
+
+Day 25 (Sep 14) — Cart and checkout
+
+[ ] Cart model, multi-seller split into per-seller orders.
+[ ] Checkout page: transparent fee line, buyer total vs. seller net shown side by side.
+[ ] Order creation locks prices at that moment — write a test for "price changes after cart, before
+    checkout" now, not later.
+
+Day 26 (Sep 15) — Payment and order lifecycle
+
+[ ] Wire the mock PaymentProvider from Day 22.
+[ ] Document Helcim as the production drop-in in code comments — hosted fields, no raw card data
+    touches the server.
+[ ] Order state machine + idempotency key on the charge path:
+    cd ml && uv run pytest marketplace/tests/test_order_lifecycle.py -v
+
+Day 27 (Sep 16) — Payouts
+
+[ ] Accrue seller net to Payout on order completion.
+[ ] Payout aggregation logic — wire into the scheduler once Day 32 builds it; log/manual until then,
+    and say so explicitly in the case study.
+
+Day 28 (Sep 17) — Transparency dashboard — flagship screen #2
+
+[ ] Live overhead ledger, rolling 4-week transaction count, current effective rate, per-seller "you
+    saved $X" figure.
+[ ] Admin view: total volume, overhead coverage.
+
+Day 29 (Sep 18) — Marketplace hardening
+
+[ ] Integration tests: happy path (browse → cart → checkout → pay → fulfill → payout), refund,
+    multi-seller split, idempotent replay.
+    cd ml && uv run pytest marketplace/tests/ -v
+[ ] Authorization audit — write a test that asserts a seller cannot edit another seller's listing,
+    not just that they can edit their own.
+[ ] Edge cases: out-of-stock at checkout, price-changed-since-cart, payment failure rollback,
+    concurrent last-copy purchase.
+
+Day 30 (Sep 19) — Week 4 checkpoint
+
+[ ] Seed demo data — a handful of sellers, ~50 listings.
+    cd ml && uv run python manage.py <a seed_marketplace_demo command you write>
+[ ] End-to-end demo: create a seller, import Discogs listings, buy with the mock provider, fulfill,
+    see the fee breakdown and savings figure.
+[ ] Screenshot checkout + the transparency dashboard.
+
+
+WEEK 5 (Sep 20-26) — HARDEN AND PACKAGE
+
+Day 31 (Sep 20) — Test coverage on what's real
+
+[ ] Go:
+    cd backend && go test ./... -v
+    Cover: /api/ebay/annotate, the max_bid function (if ported to Go), the existence-check-before-enrich logic in ebay.go.
+[ ] Django:
+    cd ml && uv run pytest -v
+    Cover: classifier retrain path, the corrected pricing formula, the fee engine and order lifecycle from Week 4.
+
+Day 32 (Sep 21) — Minimal scheduler
+
+Files: new systemd unit + timer on the droplet
+
+[ ] Turn the manual-curl nightly retrain into a systemd timer:
+    ssh root@138.197.153.128
+    sudo tee /etc/systemd/system/flic-nightly-retrain.service <<'EOF'
+    [Unit]
+    Description=Flic-a-disc nightly classifier/bandit retrain
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/bin/curl -X POST http://localhost:8000/ml/retrain/
+    EOF
+    sudo tee /etc/systemd/system/flic-nightly-retrain.timer <<'EOF'
+    [Unit]
+    Description=Run flic-nightly-retrain daily at 02:00
+    [Timer]
+    OnCalendar=*-*-* 02:00:00
+    Persistent=true
+    [Install]
+    WantedBy=timers.target
+    EOF
+    sudo systemctl daemon-reload
+    sudo systemctl enable --now flic-nightly-retrain.timer
+    systemctl list-timers | grep flic
+[ ] Add a second timer for weekly payout aggregation, same pattern, OnCalendar=weekly.
+
+Day 33 (Sep 22) — Secrets and security sweep
+
+[ ] Full secrets audit including git history:
+    git log --all -p | grep -i "password\|secret\|api_key\|token" | head -50
+    (Noisy — skim for anything that looks like a real credential, not a variable name.)
+[ ] Payment-path review: confirm no raw card data path exists, rate limits on auth/payment
+    endpoints, HTTPS + security headers.
+[ ] Console.log/print sweep:
+    grep -rn "console.log" frontend/src/ | wc -l
+    grep -rn "print(" ml/bandit/*.py | wc -l
+
+Day 34 (Sep 23) — docs/README.md
+
+[ ] Write the real top-level README: what this is, the three daily-use tabs, the marketplace, how to
+    run it, honest current-state notes.
+
+Day 35 (Sep 24) — Minimal CI
+
+Files: .github/workflows/ci.yml
+
+[ ] Three jobs — backend (go build/vet/test), frontend (npm ci + tsc --noEmit), ml (uv sync +
+    manage.py check + pytest). Push, confirm it runs and goes green in the Actions tab, add the
+    badge to the README.
+
+Day 36 (Sep 25) — Architecture diagram + docs/ML.md
+
+[ ] One diagram: Go ↔ Django ML ↔ React ↔ Postgres, the two-stage eBay pipeline, the scheduler, the
+    marketplace/payment path.
+[ ] docs/ML.md: real numbers (54,998 labels, 1.6% positive rate, ROC AUC 0.892, PR AUC 0.284,
+    threshold 0.3) plus the honest recall-priority framing for the precision number — rare positive
+    class, human review sits downstream, a missed keeper is gone forever.
+
+Day 37 (Sep 26) — docs/CASE_STUDY.md
+
+[ ] Problem, what you built, architecture trade-offs, real ML numbers, marketplace economics, honest
+    gaps (Helcim documented not live, payout disbursement logged not automated).
+
+
+DAYS 38-40 (Sep 27-29) — SHIP
+
+Day 38 (Sep 27) — Screenshots and demo
+
+[ ] Curate screenshots: landing page (flagship #1), all three tabs with Max Bid/annotation,
+    checkout, transparency dashboard (flagship #2), classifier eval numbers.
+[ ] Record a 3-5 minute demo.
+
+Day 39 (Sep 28) — Final pass
+
+[ ] Click every nav item — confirm nothing 404s, nothing's blank.
+[ ] Full loop demo: annotate from Auction, confirm it lands, Max Bid everywhere, complete a
+    marketplace purchase, confirm a real deploy.sh run.
+    ./deploy.sh
+
+Day 40 (Sep 29) — Ship
+
+[ ] Tag a release:
+    git tag v1.0.0
+    git push origin v1.0.0
+[ ] Confirm CI green, droplet healthy, assemble the submission-ready set: repo link, README,
+    docs/ML.md, docs/CASE_STUDY.md, diagram, screenshots, demo clip.
+
+
+DEFINITION OF DONE
+
+[ ] Annotating from Auction, BuyItNow, or BySeller writes a real label that retrain can see — not
+    just BySeller.
+[ ] Max Bid is visible on every listing in all three daily-use tabs.
+[ ] The Discogs wantlist checkbox verified to call the real Discogs API (it already does — Day 8
+    confirms it).
+[ ] The old kanban-and-chart dashboard is gone; /dashboard is the flagship Max Bid view.
+[ ] A buyer can complete a real (mock-provider) marketplace purchase; the transparency dashboard
+    shows ~3% vs Discogs' 11.2%.
+[ ] deploy.sh works without manual intervention; the droplet runs current code, confirmed, not
+    assumed.
+[ ] backend/internal/handlers/ebay.go no longer describes a three-stage pipeline that doesn't exist.
+[ ] CI is green on every push.
+[ ] README, architecture diagram, docs/ML.md, docs/CASE_STUDY.md, demo clip all exist.
+
+
+RULES FOR THIS SPRINT
+
+Annotate while using. The point of Week 1 is that it becomes true for eBay too, not just Discogs.
+
+No new scrape types, no new data sources. Everything outside the marketplace already exists in some
+form.
+
+One commit per day minimum, legible history — the Day 1 cleanup commit exists specifically so
+feature commits don't get buried.
+
+Protect the checkpoints: Sep 3, Sep 10, Sep 19, Sep 29. If a day slips, carry the task, protect the
+checkpoint.
+
+The marketplace week is the biggest risk. If any part stalls, the fee engine + order lifecycle +
+transparency dashboard behind the mock provider is still a complete, demoable story.
+
+Verify before rebuilding. Day 1's diff audit and Day 8's wantlist check both turned up work that was
+already done — check what exists before assuming a to-do item means "build from scratch."
