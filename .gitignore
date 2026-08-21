@@ -62,7 +62,19 @@ archive/ml/rag/
 
 # Large data dumps — not source, regenerate or fetch separately
 ml/catalog/
+archive/ml/catalog/
 ml/bandit/data/lp_catalog.json
+
 # Compiled binaries — build artifacts, not source
 backend/api
 backend/flic-go
+
+# eBay scrape output — runtime data, not source
+backend/ebay_*.csv
+backend/ebay_*.ccsv
+ml/bandit/discogs_scrapes/
+ml/bandit/ebay/ebay_training_data/*.csv
+ml/bandit/ebay/ebay_training_data/*.pkl
+
+# TypeScript incremental build cache
+frontend/.tsbuildinfo
