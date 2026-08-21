@@ -10,6 +10,7 @@ Thumbs.db
 # Environment files
 .env
 *.env
+!.env.example
 discogs_token.json
 *token*
 
@@ -47,3 +48,21 @@ venv/
 
 # Chatlogs
 writing/
+writing_sanitized/
+sanitization_stats.json
+conversations/
+
+mlruns*/
+
+# RAG system (local development only)
+
+RAG_*.md
+rag-requirements.txt
+archive/ml/rag/
+
+# Large data dumps — not source, regenerate or fetch separately
+ml/catalog/
+ml/bandit/data/lp_catalog.json
+# Compiled binaries — build artifacts, not source
+backend/api
+backend/flic-go

@@ -1,0 +1,173 @@
+Discogs is the world's largest crowdsourced music database, and makes available a monthly data dump which contains comprehensive metadata for around 31 million releases across all formats, totaling ~30GB unzipped. What the database dump does not contain are community metrics: wantlist counts and collection counts for each release. This data adds market intelligence to static catalog data, and can be leveraged to find records that are desirable — defined here as releases where community wants > haves.
+
+This community data is available via their public API, but with a hard rate limit of 60 requests per minute. I have filtered the dataset once, extracting only vinyl LPs and excluding genres and styles I am not interested in, and enriched a subset with community metrics, resulting in 395,508 releases with full metadata.
+
+Build a streaming data filtering pipeline that classifies records from the 395,508 record catalog using active learning. The key constraint: each API call should inform the classification of multiple records through propagation strategies like sibling matching, near-duplicate detection, and similarity-based inference.
+
+I don't want to stipulate how you approach this. You are free to use any method or combination of methods you deem effective. However, a streaming/active learning approach is strongly encouraged: query uncertain records iteratively, use each result to update predictions and classify similar records, and refine your strategy as you go.
+
+DATA PROVIDED
+
+1. lp_catalog_enriched_FINAL.json
+- 395,508 vinyl LP releases
+- Format: JSON array
+- Fields: release_id, master_id, artist, title, label, catalog_number, year, country, genre (array), style (array), wants, haves
+- This is your EVALUATION TARGET
+- Note: Your pipeline receives this WITHOUT wants/haves visible - use API to query them
+
+2. enriched_training.json
+- 30,000 releases with API data already fetched
+- Format: JSON array
+- Fields: All catalog fields PLUS wants and haves
+- Stratified random sample (22.82% positive rate, matches test distribution)
+- Use for TRAINING/VALIDATION ONLY
+- These records are NOT in the 395k evaluation catalog (clean train/test split)
+
+3. Mock API (optional for development)
+- FastAPI server with 60k enriched records
+- Same interface as real Discogs API
+- No rate limits - fast iteration during development
+- Start: `uvicorn mock_api:app --port 8001`
+- Endpoint: `GET /releases/{release_id}`
+
+CONSTRAINTS
+
+- API budget: Maximum 1,000 calls on the 395k catalog
+- Coverage requirement: ≥75% of catalog classified (296,631+ out of 395,508 records)
+- Precision requirement: ≥90% on both positive and negative classifications
+- Recall requirement: ≥70% on both positive and negative classes
+
+DELIVERABLES
+
+Your solution must include:
+
+1. Pipeline Code (Python)
+   Required interface:
+
+   ```python
+   def classify_catalog(catalog: list[dict], api_client: APIClient) -> dict:
+       """
+       Classify records from catalog using up to 1,000 API calls.
+
+       Args:
+           catalog: List of records from lp_catalog_enriched_FINAL.json (without wants/haves)
+           api_client: API client with get_release(release_id) method
+
+       Returns:
+           {
+               'ruled_in': [release_ids],      # Confident positives (wants > haves)
+               'ruled_out': [release_ids],     # Confident negatives (wants ≤ haves)
+               'verified': [release_ids],      # IDs that were queried via API
+               'metadata': {
+                   'api_calls_made': int,
+                   'coverage_ratio': float,
+                   'approach': str
+               }
+           }
+       """
+       pass
+   ```
+
+2. Report (Markdown)
+   - High-level approach and rationale
+   - Propagation strategies used (siblings, LSH, embeddings, heuristics)
+   - Streaming/active learning strategy (if applicable)
+   - Expected metrics based on validation
+   - Key design decisions and tradeoffs
+   - Error analysis and confidence calibration
+
+3. requirements.txt
+   - All dependencies needed to run your pipeline
+   - Python 3.10+ compatible
+
+API CLIENT INTERFACE
+
+Your pipeline receives an API client object with this interface:
+
+```python
+class APIClient:
+    def get_release(self, release_id: int) -> dict:
+        """
+        Fetch release data from Discogs API.
+
+        Returns:
+            {
+                'release_id': int,
+                'wants': int,      # Community want count
+                'haves': int,      # Community have count
+            }
+
+        Raises:
+            Exception: If API budget (1,000 calls) is exceeded
+        """
+        pass
+```
+
+Note: The API client enforces the 1,000 call budget. Your pipeline will raise an exception if exceeded.
+
+EVALUATION
+
+Your pipeline will be executed by a test harness that:
+
+1. Loads lp_catalog_enriched_FINAL.json (395,508 records)
+2. Strips wants/haves from records (so you can't cheat)
+3. Provides an API client (backed by ground truth, max 1,000 calls)
+4. Calls your classify_catalog() function
+5. Evaluates classifications against ground truth (all 395,508 records have known wants/haves)
+
+Evaluation Metrics:
+
+1. Coverage (hard requirement)
+   - Formula: (ruled_in_count + ruled_out_count) / total_catalog_size
+   - Requirement: ≥ 75% (must classify at least 296,631 out of 395,508 records)
+
+2. Precision (ruled_in) - hard requirement
+   - Compare all your ruled_in predictions to ground truth
+   - Calculate: % that truly have wants > haves
+   - Requirement: ≥ 90% precision
+
+3. Precision (ruled_out) - hard requirement
+   - Compare all your ruled_out predictions to ground truth
+   - Calculate: % that truly have wants ≤ haves
+   - Requirement: ≥ 90% precision
+
+4. Recall (ruled_in) - hard requirement
+   - True positives in catalog: ~90,243 records (22.82%)
+   - Calculate: % of true positives you classified as ruled_in
+   - Requirement: ≥ 70% recall (at least 63,170 positives found)
+
+5. Recall (ruled_out) - hard requirement
+   - True negatives in catalog: ~305,265 records (77.18%)
+   - Calculate: % of true negatives you classified as ruled_out
+   - Requirement: ≥ 70% recall (at least 213,686 negatives found)
+
+SCORING
+
+Your solution MUST meet ALL of these hard requirements:
+- **Coverage**: ≥75% of catalog classified (296,631+ out of 395,508 records)
+- **Precision (ruled_in)**: ≥90% accuracy on positive predictions
+- **Precision (ruled_out)**: ≥90% accuracy on negative predictions
+- **Recall (ruled_in)**: ≥70% of true positives correctly classified (63,170+ found)
+- **Recall (ruled_out)**: ≥70% of true negatives correctly classified (213,686+ found)
+- **API Budget**: ≤1,000 API calls
+
+An ideal solution would:
+- Train strong ML model on 30k training data
+- Use streaming/active learning to query strategically
+- Combine ML-based classification with selective propagation via master_id grouping
+- Cover 75%+ of the catalog within the 1,000 call budget
+- Maintain 90% precision and 70% recall on both classes
+
+
+NOTES
+
+- The 30k enriched training records are stratified to match test distribution exactly
+- Training and evaluation sets are completely separate (clean train/test split, zero overlap)
+- Base rate in evaluation catalog: 22.82% positive (wants > haves), 77.18% negative
+- Training distribution: 22.82% positive (identical to test - no distribution mismatch)
+- Coverage, precision, AND recall are all critical - all requirements must be met
+- ML-based classification is the primary coverage driver (trained on 30k, applied to 395k)
+- Master_id grouping provides supplemental coverage but releases in same master may have different wants/haves
+- You have ground truth for all 395k records for evaluation (but not visible to your pipeline)
+- Mock API allows rapid iteration during development
+- Same code works with both mock and evaluation API via unified interface

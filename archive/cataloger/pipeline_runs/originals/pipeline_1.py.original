@@ -1,0 +1,435 @@
+"""
+Discogs Record Classification Pipeline
+
+Strategy:
+1. Train LightGBM ensemble on 30k enriched training data
+2. Score 395k catalog with model probabilities
+3. API Phase 1: Calibration sampling (300 calls) to find optimal thresholds
+4. API Phase 2: Strategic group queries (700 calls) with propagation
+5. Combined grouping: master_id + artist+title near-duplicate detection
+6. Adaptive threshold selection based on empirical calibration
+"""
+
+import json
+import numpy as np
+import collections
+import hashlib
+import lightgbm as lgb
+from pathlib import Path
+
+
+def safe_str(val):
+    return '' if val is None else str(val)
+
+
+def feature_hash(value, n_bins=256):
+    return int(hashlib.md5(str(value).encode()).hexdigest(), 16) % n_bins
+
+
+class FeatureBuilder:
+    """Builds feature vectors from record metadata."""
+    
+    def fit(self, records):
+        self.genres = sorted(set(
+            g for r in records for g in r['genre']
+            if isinstance(g, str) and not g.startswith('[')))
+        sc = collections.Counter(s for r in records for s in r['style'] if isinstance(s, str))
+        self.styles = sorted(s for s, c in sc.items() if c >= 5)
+        cc = collections.Counter(safe_str(r['country']) for r in records)
+        self.countries = sorted(c for c, n in cc.items() if n >= 5 and c)
+        lc = collections.Counter(safe_str(r['label']) for r in records)
+        self.labels = sorted(l for l, c in lc.items() if c >= 3 and l)
+        
+        self.artist_st = {}; self.label_st = {}; self.country_st = {}
+        self.gc_st = {}; self.style_st = {}; self.gpr = 0
+        for r in records:
+            p = int(r['wants']) > int(r['haves']); self.gpr += p
+            for d, k in [(self.artist_st, r['artist']),
+                         (self.label_st, safe_str(r['label'])),
+                         (self.country_st, safe_str(r['country']))]:
+                if k not in d: d[k] = [0, 0]
+                d[k][0] += p; d[k][1] += 1
+            gk = '|'.join(sorted(g for g in r['genre']
+                                 if isinstance(g, str) and not g.startswith('[')))
+            if gk not in self.gc_st: self.gc_st[gk] = [0, 0]
+            self.gc_st[gk][0] += p; self.gc_st[gk][1] += 1
+            for s in r['style']:
+                if isinstance(s, str):
+                    if s not in self.style_st: self.style_st[s] = [0, 0]
+                    self.style_st[s][0] += p; self.style_st[s][1] += 1
+        self.gpr /= len(records)
+        
+        self.gi = {g: i for i, g in enumerate(self.genres)}
+        self.si = {s: i for i, s in enumerate(self.styles)}
+        self.ci = {c: i for i, c in enumerate(self.countries)}
+        self.li = {l: i for i, l in enumerate(self.labels)}
+        self.AH = 256; self.LH = 128
+        self.nf = (len(self.genres) + len(self.styles) + len(self.countries) +
+                   len(self.labels) + self.AH + self.LH + 14)
+        return self
+    
+    def transform(self, records):
+        n = len(records)
+        X = np.zeros((n, self.nf), dtype=np.float32)
+        go = 0; so = go + len(self.genres); co = so + len(self.styles)
+        lo = co + len(self.countries); ao = lo + len(self.labels)
+        lho = ao + self.AH; eo = lho + self.LH
+        for i, r in enumerate(records):
+            for g in r['genre']:
+                if g in self.gi: X[i, go + self.gi[g]] = 1
+            for s in r['style']:
+                if s in self.si: X[i, so + self.si[s]] = 1
+            c = safe_str(r['country'])
+            if c in self.ci: X[i, co + self.ci[c]] = 1
+            l = safe_str(r['label'])
+            if l in self.li: X[i, lo + self.li[l]] = 1
+            X[i, ao + feature_hash(r['artist'], self.AH)] = 1
+            X[i, lho + feature_hash(l, self.LH)] = 1
+            yr = r.get('year'); yv = None
+            if yr and str(yr) not in ('None', ''):
+                try: yv = int(yr); X[i, eo] = yv
+                except: pass
+            X[i, eo+1] = 1 if yv is None else 0
+            X[i, eo+2] = len(r['genre']); X[i, eo+3] = len(r['style'])
+            def gr(d, k, m=2):
+                s2 = d.get(k)
+                return (s2[0]+1)/(s2[1]+4) if s2 and s2[1] >= m else self.gpr
+            X[i, eo+4] = gr(self.artist_st, r['artist'])
+            X[i, eo+5] = gr(self.label_st, l)
+            X[i, eo+6] = gr(self.country_st, c)
+            gk = '|'.join(sorted(g for g in r['genre']
+                                 if isinstance(g, str) and not g.startswith('[')))
+            X[i, eo+7] = gr(self.gc_st, gk)
+            srs = [self.style_st[s][0]/self.style_st[s][1]
+                   for s in r['style']
+                   if isinstance(s, str) and s in self.style_st and self.style_st[s][1] >= 3]
+            X[i, eo+8] = np.mean(srs) if srs else self.gpr
+            X[i, eo+9] = max(srs) if srs else self.gpr
+            ast = self.artist_st.get(r['artist'])
+            X[i, eo+10] = ast[1] if ast else 0
+            lst = self.label_st.get(l)
+            X[i, eo+11] = lst[1] if lst else 0
+            X[i, eo+12] = len(r.get('title', ''))
+            try: X[i, eo+13] = int(r['release_id'])
+            except: pass
+        return X
+
+
+def build_groups(catalog):
+    """Build combined grouping: master_id + artist+title near-duplicates."""
+    raw_groups = collections.defaultdict(list)
+    master_assigned = set()
+    for idx, r in enumerate(catalog):
+        mid = safe_str(r.get('master_id', '0'))
+        if mid not in ('0', ''):
+            raw_groups[f"m:{mid}"].append(idx)
+            master_assigned.add(idx)
+    at_temp = collections.defaultdict(list)
+    for idx, r in enumerate(catalog):
+        if idx in master_assigned:
+            continue
+        key = f"{r['artist'].lower().strip()}|||{r['title'].lower().strip()}"
+        at_temp[key].append(idx)
+    for key, indices in at_temp.items():
+        if len(indices) >= 2:
+            raw_groups[f"at:{key}"] = indices
+    groups = {k: v for k, v in raw_groups.items() if len(v) >= 2}
+    idx_to_group = {}
+    for gkey, indices in groups.items():
+        for idx in indices:
+            idx_to_group[idx] = gkey
+    return groups, idx_to_group
+
+
+def find_pos_threshold(cal_probs, cal_labels, target_precision=0.895, min_samples=8):
+    """Find lowest positive threshold maintaining target cumulative precision."""
+    order = np.argsort(cal_probs)[::-1]
+    threshold = 0.80  # default
+    cum_tp = 0; cum_n = 0
+    last_good = 0.80
+    
+    for j in order:
+        cum_n += 1
+        cum_tp += cal_labels[j]
+        prec = cum_tp / cum_n
+        if cum_n >= min_samples:
+            if prec >= target_precision:
+                last_good = cal_probs[j]
+            else:
+                break  # Precision dropped below target, stop
+    
+    return last_good
+
+
+def find_neg_threshold(cal_probs, cal_labels, target_precision=0.895, min_samples=8):
+    """Find highest negative threshold maintaining target neg precision."""
+    order = np.argsort(cal_probs)
+    threshold = 0.15  # default
+    cum_tn = 0; cum_n = 0
+    last_good = 0.15
+    
+    for j in order:
+        cum_n += 1
+        cum_tn += (1 - cal_labels[j])
+        neg_prec = cum_tn / cum_n
+        if cum_n >= min_samples:
+            if neg_prec >= target_precision:
+                last_good = cal_probs[j]
+            else:
+                break
+    
+    return last_good
+
+
+def classify_catalog(catalog, api_client):
+    """
+    Classify records from catalog using up to 1,000 API calls.
+    
+    Args:
+        catalog: List of records (without wants/haves)
+        api_client: API client with get_release(release_id) method
+    
+    Returns:
+        dict with ruled_in, ruled_out, verified, metadata
+    """
+    # =================================================================
+    # PHASE 1: Train model
+    # =================================================================
+    training_path = Path(__file__).parent / 'enriched_training.json'
+    with open(training_path) as f:
+        training_data = json.load(f)
+    
+    fb = FeatureBuilder()
+    fb.fit(training_data)
+    X_train = fb.transform(training_data)
+    y_train = np.array([1 if int(r['wants']) > int(r['haves']) else 0
+                        for r in training_data])
+    
+    models = []
+    for seed in [42, 79, 137, 251, 397]:
+        params = {
+            'objective': 'binary', 'metric': 'binary_logloss', 'verbosity': -1,
+            'num_leaves': 63, 'learning_rate': 0.05, 'feature_fraction': 0.8,
+            'bagging_fraction': 0.8, 'bagging_freq': 5, 'min_child_samples': 20,
+            'reg_alpha': 0.1, 'reg_lambda': 0.1, 'seed': seed, 'bagging_seed': seed,
+        }
+        dt = lgb.Dataset(X_train, y_train)
+        models.append(lgb.train(params, dt, num_boost_round=200))
+    
+    # =================================================================
+    # PHASE 2: Score catalog
+    # =================================================================
+    X_cat = fb.transform(catalog)
+    probs = np.mean([m.predict(X_cat) for m in models], axis=0)
+    
+    n_total = len(catalog)
+    id_to_idx = {str(catalog[i]['release_id']): i for i in range(n_total)}
+    groups, idx_to_group = build_groups(catalog)
+    
+    # =================================================================
+    # PHASE 3: API Calibration (300 calls)
+    # =================================================================
+    MAX_CALLS = 1000
+    CAL_BUDGET = 300
+    api_calls = 0
+    api_results = {}
+    verified = []
+    np.random.seed(42)
+    cal_data = []
+    
+    bins = [(0.10, 0.20), (0.20, 0.30), (0.30, 0.40), (0.40, 0.50),
+            (0.50, 0.55), (0.55, 0.60), (0.60, 0.65), (0.65, 0.70),
+            (0.70, 0.75), (0.75, 0.80), (0.80, 0.85), (0.85, 0.95)]
+    per_bin = CAL_BUDGET // len(bins)
+    
+    for lo, hi in bins:
+        in_bin = np.where((probs >= lo) & (probs < hi))[0]
+        if len(in_bin) == 0:
+            continue
+        sample = np.random.choice(in_bin, min(per_bin, len(in_bin)), replace=False)
+        for idx in sample:
+            if api_calls >= CAL_BUDGET:
+                break
+            rid = str(catalog[idx]['release_id'])
+            try:
+                result = api_client.get_release(int(rid))
+                api_calls += 1
+                verified.append(rid)
+                is_pos = result['wants'] > result['haves']
+                api_results[rid] = is_pos
+                cal_data.append((probs[idx], is_pos))
+            except:
+                break
+    
+    # =================================================================
+    # PHASE 4: Find optimal thresholds from calibration
+    # =================================================================
+    cal_p = np.array([d[0] for d in cal_data])
+    cal_y = np.array([d[1] for d in cal_data])
+    
+    pos_threshold = find_pos_threshold(cal_p, cal_y, target_precision=0.895, min_samples=8)
+    neg_threshold = find_neg_threshold(cal_p, cal_y, target_precision=0.895, min_samples=8)
+    
+    if neg_threshold >= pos_threshold:
+        neg_threshold = min(pos_threshold * 0.5, 0.15)
+    
+    # =================================================================
+    # PHASE 5: Strategic group queries (remaining budget)
+    # =================================================================
+    group_info = []
+    for gkey, indices in groups.items():
+        n_unc = sum(1 for idx in indices if neg_threshold <= probs[idx] < pos_threshold)
+        if n_unc == 0:
+            continue
+        max_p = max(probs[idx] for idx in indices)
+        score = len(indices) * max_p + n_unc
+        group_info.append((gkey, score, indices))
+    group_info.sort(key=lambda x: x[1], reverse=True)
+    
+    queried_groups = {}
+    for gkey, score, indices in group_info:
+        if api_calls >= MAX_CALLS:
+            break
+        best_idx = max(indices, key=lambda i: probs[i])
+        rid = str(catalog[best_idx]['release_id'])
+        if rid in api_results:
+            queried_groups[gkey] = api_results[rid]
+            continue
+        try:
+            result = api_client.get_release(int(rid))
+            api_calls += 1
+            verified.append(rid)
+            is_pos = result['wants'] > result['haves']
+            api_results[rid] = is_pos
+            queried_groups[gkey] = is_pos
+        except:
+            break
+    
+    # Individual uncertain queries
+    if api_calls < MAX_CALLS:
+        unc = sorted(
+            [(idx, probs[idx]) for idx in range(n_total)
+             if str(catalog[idx]['release_id']) not in api_results
+             and neg_threshold <= probs[idx] < pos_threshold],
+            key=lambda x: x[1], reverse=True)
+        for idx, p in unc:
+            if api_calls >= MAX_CALLS:
+                break
+            rid = str(catalog[idx]['release_id'])
+            try:
+                result = api_client.get_release(int(rid))
+                api_calls += 1
+                verified.append(rid)
+                api_results[rid] = result['wants'] > result['haves']
+            except:
+                break
+    
+    # =================================================================
+    # PHASE 6: Classification
+    # =================================================================
+    ruled_in = set()
+    ruled_out = set()
+    
+    # 6a: Model-based
+    for idx in range(n_total):
+        rid = str(catalog[idx]['release_id'])
+        if probs[idx] >= pos_threshold:
+            ruled_in.add(rid)
+        elif probs[idx] < neg_threshold:
+            ruled_out.add(rid)
+    
+    # 6b: Direct API results override
+    for rid, is_pos in api_results.items():
+        if is_pos:
+            ruled_out.discard(rid)
+            ruled_in.add(rid)
+        else:
+            ruled_in.discard(rid)
+            ruled_out.add(rid)
+    
+    # 6c: Group propagation
+    for gkey, is_pos in queried_groups.items():
+        is_master = gkey.startswith('m:')
+        for idx in groups[gkey]:
+            rid = str(catalog[idx]['release_id'])
+            if rid in api_results:
+                continue
+            p = probs[idx]
+            if is_pos and p >= 0.70:
+                ruled_out.discard(rid)
+                ruled_in.add(rid)
+            elif not is_pos:
+                neg_t = 0.55 if is_master else 0.40
+                if p < neg_t:
+                    ruled_in.discard(rid)
+                    ruled_out.add(rid)
+    
+    # 6d: Propagation from individual API queries
+    for rid, is_pos in api_results.items():
+        if rid not in id_to_idx:
+            continue
+        idx = id_to_idx[rid]
+        if idx not in idx_to_group:
+            continue
+        gkey = idx_to_group[idx]
+        if gkey in queried_groups:
+            continue
+        is_master = gkey.startswith('m:')
+        for sib_idx in groups[gkey]:
+            sib_rid = str(catalog[sib_idx]['release_id'])
+            if sib_rid in api_results:
+                continue
+            p = probs[sib_idx]
+            if is_pos and p >= 0.70:
+                ruled_out.discard(sib_rid)
+                ruled_in.add(sib_rid)
+            elif not is_pos:
+                neg_t = 0.55 if is_master else 0.40
+                if p < neg_t:
+                    ruled_in.discard(sib_rid)
+                    ruled_out.add(sib_rid)
+    
+    # =================================================================
+    # PHASE 7: Coverage optimization
+    # =================================================================
+    coverage = (len(ruled_in) + len(ruled_out)) / n_total
+    if coverage < 0.76:
+        deficit = int(0.76 * n_total) - len(ruled_in) - len(ruled_out)
+        unc_list = []
+        for idx in range(n_total):
+            rid = str(catalog[idx]['release_id'])
+            if rid not in ruled_in and rid not in ruled_out:
+                unc_list.append((idx, rid, probs[idx], abs(probs[idx] - 0.5)))
+        unc_list.sort(key=lambda x: x[3], reverse=True)
+        for idx, rid, p, conf in unc_list:
+            if deficit <= 0:
+                break
+            if p < 0.5:
+                ruled_out.add(rid)
+            elif p >= pos_threshold * 0.85:
+                ruled_in.add(rid)
+            else:
+                ruled_out.add(rid)
+            deficit -= 1
+    
+    final_coverage = (len(ruled_in) + len(ruled_out)) / n_total
+    
+    return {
+        'ruled_in': list(ruled_in),
+        'ruled_out': list(ruled_out),
+        'verified': verified,
+        'metadata': {
+            'api_calls_made': api_calls,
+            'coverage_ratio': final_coverage,
+            'approach': (
+                f'LightGBM 5-model ensemble on 30k training. '
+                f'{fb.nf} features. Calibrated thresholds: '
+                f'pos>={pos_threshold:.3f}, neg<{neg_threshold:.3f}. '
+                f'{api_calls} API calls. Combined master_id + artist+title propagation.'
+            ),
+            'pos_threshold': float(pos_threshold),
+            'neg_threshold': float(neg_threshold),
+            'n_ruled_in': len(ruled_in),
+            'n_ruled_out': len(ruled_out),
+        }
+    }

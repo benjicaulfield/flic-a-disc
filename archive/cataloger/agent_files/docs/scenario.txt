@@ -1,0 +1,8 @@
+scenario:
+Discogs, the world's largest crowdsourced music database, makes available a monthly data dump which contains comprehensive metadata for around 31 million releases across all formats, totaling ~30GB unzipped. What the database dump does not contain are community metrics such as wantlist counts and collection counts for each release. This data adds market intelligence to static catalog data, and can be leveraged to find records that are desirable (defined as wants > haves).
+
+This community data is available via their public API, but with a hard rate limit of 60 requests per minute. I have filtered the dataset to ~3 million vinyl LPs, excluding genres and styles I'm not interested in - this would be 34 days' worth of API calls.
+
+The challenge: Build a streaming data filtering pipeline that uses active learning to classify records from the 3 million catalog. The key constraint: each API call should inform the classification of multiple records through propagation (siblings, near-duplicates, similarity). With a budget of 5,000 API calls, you should confidently classify 50,000+ records, achieving ≥90% precision and ≥80% recall (~675k of 844k desirable records, based on a 29.1% base rate measured to convergence).
+
+I am providing the full 3 million record catalog for evaluation, and 60,000 enriched records with API data for training only (NOT used in evaluation). Your solution will be evaluated on the full catalog using real Discogs API calls to verify a sample of your confident classifications. The primary metric is coverage: how many records you classify per API call.

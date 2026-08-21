@@ -1,0 +1,620 @@
+Discogs is the world's largest crowdsourced music database, and makes available a monthly data dump which contains comprehensive metadata for around 31 million releases across all formats, totaling ~30GB unzipped. What the database dump does not contain are community metrics: wantlist counts and collection counts for each release. This data adds market intelligence to static catalog data, and can be leveraged to find records that are desirable — defined here as releases where community wants > haves.
+
+This community data is available via their public API, but with a hard rate limit of 60 requests per minute. I have filtered the dataset once, extracting only vinyl LPs and excluding genres and styles I am not interested in, and enriched a subset with community metrics, resulting in 395,508 releases with full metadata.
+
+Build a streaming data filtering pipeline that classifies records from the 395,508 record catalog using active learning. The key challenge: you have a budget of only 1,000 API calls to achieve 75% coverage with 90% precision and 70% recall on both classes.
+
+I don't want to stipulate how you approach this. You are free to use any method or combination of methods you deem effective. However, the core challenge is building a strong ML classifier - propagation strategies are supplemental.
+
+DATA PROVIDED
+
+1. lp_catalog.json
+- 395,508 vinyl LP releases
+- Format: JSON array
+- Fields: release_id, master_id, artist, title, label, catalog_number, year, country, genre (array), style (array)
+- This is your EVALUATION TARGET
+- Note: Your pipeline receives this WITHOUT wants/haves visible - use API to query them
+
+2. enriched_training.json
+- 30,000 releases with API data already fetched
+- Format: JSON array
+- Fields: All catalog fields PLUS wants and haves
+- Stratified random sample (22.82% positive rate, matches test distribution exactly)
+- Use for TRAINING/VALIDATION ONLY
+- These records are NOT in the 395k evaluation catalog (clean train/test split, zero overlap)
+
+3. Mock API (optional for development)
+- FastAPI server with 60k enriched records
+- Same interface as real Discogs API
+- No rate limits - fast iteration during development
+- Start: `uvicorn mock_api:app --port 8001`
+- Endpoint: `GET /releases/{release_id}`
+
+CONSTRAINTS
+
+- API budget: Maximum 1,000 calls on the 395k catalog
+- Coverage requirement: ≥75% of catalog classified (296,631+ out of 395,508 records)
+- Precision requirement: ≥90% on both positive and negative classifications
+- Recall requirement: ≥70% on both positive and negative classes
+
+DELIVERABLES
+
+Your solution must include:
+
+1. Pipeline Code (Python)
+   Required interface:
+
+   ```python
+   def classify_catalog(catalog: list[dict], api_client: APIClient) -> dict:
+       """
+       Classify records from catalog using up to 1,000 API calls.
+
+       Args:
+           catalog: List of records from lp_catalog.json (without wants/haves)
+           api_client: API client with get_release(release_id) method
+
+       Returns:
+           {
+               'ruled_in': [release_ids],      # Confident positives (wants > haves)
+               'ruled_out': [release_ids],     # Confident negatives (wants ≤ haves)
+               'verified': [release_ids],      # IDs that were queried via API
+               'metadata': {
+                   'api_calls_made': int,
+                   'coverage_ratio': float,
+                   'approach': str
+               }
+           }
+       """
+       pass
+   ```
+
+2. Report (Markdown)
+   - High-level approach and rationale
+   - Feature engineering details
+   - Model selection and calibration
+   - Threshold tuning strategy
+   - Expected metrics based on validation
+   - Key design decisions and tradeoffs
+
+3. requirements.txt
+   - All dependencies needed to run your pipeline
+   - Python 3.10+ compatible
+
+API CLIENT INTERFACE
+
+Your pipeline receives an API client object with this interface:
+
+```python
+class APIClient:
+    def get_release(self, release_id: int) -> dict:
+        """
+        Fetch release data from Discogs API.
+
+        Returns:
+            {
+                'release_id': int,
+                'wants': int,      # Community want count
+                'haves': int,      # Community have count
+            }
+
+        Raises:
+            Exception: If API budget (1,000 calls) is exceeded
+        """
+        pass
+```
+
+Note: The API client enforces the 1,000 call budget. Your pipeline will raise an exception if exceeded.
+
+EVALUATION
+
+Your pipeline will be executed by a test harness that:
+
+1. Loads lp_catalog.json (365k records)
+2. Strips wants/haves from records (so you can't cheat)
+3. Creates API client backed by ground truth (max 1,000 calls)
+4. Runs your classify_catalog() function
+5. Compares your predictions to ground truth
+6. Calculates all metrics
+7. Checks pass/fail criteria
+8. Saves evaluation_report.json
+
+Evaluation Metrics:
+
+1. Coverage (hard requirement)
+   - Formula: (ruled_in_count + ruled_out_count) / total_catalog_size
+   - Requirement: ≥ 75% (must classify at least 296,631 out of 395,508 records)
+
+2. Precision (ruled_in) - hard requirement
+   - Compare all your ruled_in predictions to ground truth
+   - Calculate: % that truly have wants > haves
+   - Requirement: ≥ 90% precision
+
+3. Precision (ruled_out) - hard requirement
+   - Compare all your ruled_out predictions to ground truth
+   - Calculate: % that truly have wants ≤ haves
+   - Requirement: ≥ 90% precision
+
+4. Recall (ruled_in) - hard requirement
+   - True positives in catalog: ~90,243 records (22.82%)
+   - Calculate: % of true positives you classified as ruled_in
+   - Requirement: ≥ 70% recall (at least 63,170 positives found)
+
+5. Recall (ruled_out) - hard requirement
+   - True negatives in catalog: ~305,265 records (77.18%)
+   - Calculate: % of true negatives you classified as ruled_out
+   - Requirement: ≥ 70% recall (at least 213,686 negatives found)
+
+SCORING
+
+Your solution MUST meet ALL of these hard requirements:
+- **Coverage**: ≥75% of catalog classified (296,631+ out of 395,508 records)
+- **Precision (ruled_in)**: ≥90% accuracy on positive predictions
+- **Precision (ruled_out)**: ≥90% accuracy on negative predictions
+- **Recall (ruled_in)**: ≥70% of true positives correctly classified (63,170+ found)
+- **Recall (ruled_out)**: ≥70% of true negatives correctly classified (213,686+ found)
+- **API Budget**: ≤1,000 API calls
+
+The key to success: Build a strong ML classifier with good feature engineering and calibration. Propagation is supplemental.
+
+================================================================================
+
+KEY INSIGHTS FOR SUCCESS
+
+1. **ML is the primary driver** - You need to classify ~70% of the catalog (255k records) with ML alone. Propagation strategies might add 5% more coverage, but they're not the main event.
+
+2. **Calibration is critical** - Uncalibrated model probabilities are unreliable. Use CalibratedClassifierCV to get trustworthy confidence scores.
+
+3. **Threshold tuning is make-or-break** - You need to find thresholds that achieve 90% precision. Don't use naive 0.5 threshold.
+
+4. **No distribution mismatch** - Training and test both have 22.82% positive rate. Clean, fair split.
+
+5. **Feature engineering matters** - Text fields (artist, title, label) contain signal. Use TF-IDF. Genre/style need proper encoding.
+
+================================================================================
+
+FEATURE ENGINEERING GUIDE
+
+The metadata fields have different types and require different treatment:
+
+**Text Fields (artist, title, label):**
+```python
+from sklearn.feature_extraction.text import TfidfVectorizer
+
+# Artist names - high signal
+artist_vectorizer = TfidfVectorizer(
+    max_features=300,
+    ngram_range=(1, 2),
+    min_df=2
+)
+artist_features = artist_vectorizer.fit_transform(artists)
+
+# Title - medium signal
+title_vectorizer = TfidfVectorizer(
+    max_features=200,
+    ngram_range=(1, 2),
+    min_df=2
+)
+title_features = title_vectorizer.fit_transform(titles)
+
+# Label - high signal (Blue Note, Parlophone, etc.)
+label_vectorizer = TfidfVectorizer(
+    max_features=200,
+    min_df=2
+)
+label_features = label_vectorizer.fit_transform(labels)
+```
+
+**Multi-Label Fields (genre, style):**
+```python
+from sklearn.preprocessing import MultiLabelBinarizer
+
+# Genre - medium signal
+genre_mlb = MultiLabelBinarizer()
+genre_features = genre_mlb.fit_transform(genres)
+
+# Style - medium-high signal
+style_mlb = MultiLabelBinarizer()
+style_features = style_mlb.fit_transform(styles)
+```
+
+**Numeric/Categorical Fields:**
+```python
+# Year - high signal (vintage records more desirable)
+# Option 1: Decade bins
+year_decade = (year - 1950) // 10
+
+# Option 2: Standardize
+from sklearn.preprocessing import StandardScaler
+year_scaled = StandardScaler().fit_transform(year.reshape(-1, 1))
+
+# Country - medium signal
+from sklearn.preprocessing import LabelEncoder
+country_encoded = LabelEncoder().fit_transform(country)
+```
+
+**Combining Features:**
+```python
+from scipy.sparse import hstack
+
+X = hstack([
+    artist_features,
+    title_features,
+    label_features,
+    genre_features,
+    style_features,
+    year_scaled,
+    country_encoded.reshape(-1, 1)
+])
+```
+
+================================================================================
+
+MODEL TRAINING GUIDE
+
+**Recommended Models:**
+
+```python
+from lightgbm import LGBMClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.calibration import CalibratedClassifierCV
+
+# Option 1: LightGBM (fast, excellent for tabular data)
+model = LGBMClassifier(
+    n_estimators=200,
+    max_depth=7,
+    learning_rate=0.05,
+    num_leaves=31,
+    random_state=42
+)
+
+# Option 2: Random Forest (reliable baseline)
+model = RandomForestClassifier(
+    n_estimators=200,
+    max_depth=15,
+    min_samples_split=10,
+    random_state=42,
+    n_jobs=-1
+)
+
+# Train on full training set or use validation split
+model.fit(X_train, y_train)
+```
+
+**CRITICAL: Calibration**
+
+Uncalibrated probabilities are unreliable. You MUST calibrate:
+
+```python
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.model_selection import StratifiedKFold
+
+# Calibrate using isotonic regression (non-parametric)
+calibrated_model = CalibratedClassifierCV(
+    model,
+    method='isotonic',  # or 'sigmoid' for Platt scaling
+    cv=StratifiedKFold(5)
+)
+calibrated_model.fit(X_train, y_train)
+
+# Now probabilities are trustworthy
+probs = calibrated_model.predict_proba(X_test)[:, 1]
+```
+
+**Why calibration matters:**
+- Uncalibrated: model says 0.7 but true probability is 0.5
+- Calibrated: model says 0.7 and true probability is actually ~0.7
+- Essential for setting precision thresholds
+
+================================================================================
+
+THRESHOLD TUNING GUIDE
+
+The default 0.5 threshold WON'T work. You need to find thresholds that achieve 90% precision while maximizing recall.
+
+**Strategy:**
+
+```python
+import numpy as np
+from sklearn.metrics import precision_score, recall_score
+
+# Split training data for validation
+from sklearn.model_selection import train_test_split
+
+X_train, X_val, y_train, y_val = train_test_split(
+    X, y, test_size=0.2, stratify=y, random_state=42
+)
+
+# Train and calibrate on training set
+calibrated_model.fit(X_train, y_train)
+
+# Get probabilities on validation set
+val_probs = calibrated_model.predict_proba(X_val)[:, 1]
+
+# Find threshold for POSITIVES (ruled_in)
+best_pos_threshold = 0.5
+best_pos_recall = 0
+
+for threshold in np.arange(0.3, 0.9, 0.01):
+    pos_preds = val_probs >= threshold
+
+    if pos_preds.sum() == 0:
+        continue
+
+    prec = precision_score(y_val, pos_preds)
+    rec = recall_score(y_val, pos_preds)
+
+    # Must meet precision requirement
+    if prec >= 0.90:
+        # Maximize recall among valid thresholds
+        if rec > best_pos_recall:
+            best_pos_recall = rec
+            best_pos_threshold = threshold
+
+print(f"Positive threshold: {best_pos_threshold:.3f} (precision: 90%, recall: {best_pos_recall:.1%})")
+
+# Find threshold for NEGATIVES (ruled_out)
+best_neg_threshold = 0.5
+best_neg_recall = 0
+
+for threshold in np.arange(0.1, 0.7, 0.01):
+    neg_preds = val_probs < threshold
+
+    if neg_preds.sum() == 0:
+        continue
+
+    # Precision for negatives
+    prec = precision_score(~y_val, neg_preds)
+    rec = recall_score(~y_val, neg_preds)
+
+    if prec >= 0.90:
+        if rec > best_neg_recall:
+            best_neg_recall = rec
+            best_neg_threshold = threshold
+
+print(f"Negative threshold: {best_neg_threshold:.3f} (precision: 90%, recall: {best_neg_recall:.1%})")
+```
+
+**Expected Results:**
+- Positive threshold: ~0.55-0.65 (NOT 0.95!)
+- Negative threshold: ~0.35-0.45 (NOT 0.05!)
+- Combined coverage: 70-75% at 90% precision, 70%+ recall
+
+================================================================================
+
+REALISTIC EXAMPLE PIPELINE
+
+```python
+def classify_catalog(catalog, api_client):
+    import numpy as np
+    from scipy.sparse import hstack
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
+    from lightgbm import LGBMClassifier
+    from sklearn.calibration import CalibratedClassifierCV
+
+    # 1. Load and prepare training data
+    with open('eval/data/enriched_training.json') as f:
+        training = json.load(f)
+
+    # Extract features and labels
+    train_artists = [r['artist'] for r in training]
+    train_labels = [r['label'] for r in training]
+    train_genres = [r.get('genres', r.get('genre', [])) for r in training]
+    train_years = np.array([r.get('year', 1980) for r in training])
+
+    y_train = np.array([1 if r['wants'] > r['haves'] else 0 for r in training])
+
+    # 2. Feature engineering
+    # Text features
+    artist_vec = TfidfVectorizer(max_features=300, ngram_range=(1,2), min_df=2)
+    label_vec = TfidfVectorizer(max_features=200, min_df=2)
+    genre_mlb = MultiLabelBinarizer()
+
+    train_artist_feats = artist_vec.fit_transform(train_artists)
+    train_label_feats = label_vec.fit_transform(train_labels)
+    train_genre_feats = genre_mlb.fit_transform(train_genres)
+
+    # Numeric features
+    year_scaler = StandardScaler()
+    train_year_feats = year_scaler.fit_transform(train_years.reshape(-1, 1))
+
+    X_train = hstack([
+        train_artist_feats,
+        train_label_feats,
+        train_genre_feats,
+        train_year_feats
+    ])
+
+    # 3. Train and calibrate model
+    base_model = LGBMClassifier(n_estimators=200, max_depth=7, random_state=42)
+    calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=5)
+    calibrated_model.fit(X_train, y_train)
+
+    # 4. Apply to catalog
+    cat_artists = [r['artist'] for r in catalog]
+    cat_labels = [r['label'] for r in catalog]
+    cat_genres = [r.get('genre', []) for r in catalog]
+    cat_years = np.array([r.get('year', 1980) for r in catalog])
+
+    cat_artist_feats = artist_vec.transform(cat_artists)
+    cat_label_feats = label_vec.transform(cat_labels)
+    cat_genre_feats = genre_mlb.transform(cat_genres)
+    cat_year_feats = year_scaler.transform(cat_years.reshape(-1, 1))
+
+    X_catalog = hstack([
+        cat_artist_feats,
+        cat_label_feats,
+        cat_genre_feats,
+        cat_year_feats
+    ])
+
+    # 5. Get calibrated probabilities
+    probs = calibrated_model.predict_proba(X_catalog)[:, 1]
+
+    # 6. Apply tuned thresholds (from validation)
+    pos_threshold = 0.60  # Tuned to achieve 90% precision
+    neg_threshold = 0.40  # Tuned to achieve 90% precision
+
+    ruled_in = []
+    ruled_out = []
+
+    for idx, (record, prob) in enumerate(zip(catalog, probs)):
+        if prob >= pos_threshold:
+            ruled_in.append(record['release_id'])
+        elif prob < neg_threshold:
+            ruled_out.append(record['release_id'])
+
+    # 7. Optional: Use API calls for uncertain records
+    # (Records between 0.40 and 0.60 are uncertain)
+    uncertain = [
+        (idx, record, prob)
+        for idx, (record, prob) in enumerate(zip(catalog, probs))
+        if neg_threshold <= prob < pos_threshold
+    ]
+
+    # Sort by uncertainty (closest to 0.5)
+    uncertain.sort(key=lambda x: abs(x[2] - 0.5))
+
+    verified = []
+    for i in range(min(1000, len(uncertain))):
+        idx, record, prob = uncertain[i]
+
+        result = api_client.get_release(record['release_id'])
+        verified.append(record['release_id'])
+
+        if result['wants'] > result['haves']:
+            ruled_in.append(record['release_id'])
+        else:
+            ruled_out.append(record['release_id'])
+
+    return {
+        'ruled_in': ruled_in,
+        'ruled_out': ruled_out,
+        'verified': verified,
+        'metadata': {
+            'api_calls_made': len(verified),
+            'coverage_ratio': (len(ruled_in) + len(ruled_out)) / len(catalog),
+            'approach': 'LightGBM + calibration + threshold tuning + API validation'
+        }
+    }
+```
+
+================================================================================
+
+SUPPLEMENTAL STRATEGIES (Optional)
+
+These are lower priority than getting the ML model right. Only pursue after you have a strong baseline.
+
+**1. Master ID Grouping (supplemental ~5% coverage)**
+
+Records with the same master_id TEND to have correlated wants/haves, but DO NOT share identical values:
+- Naive propagation: ~82% accuracy (below 90% threshold)
+- Majority vote (2-3 samples per group): ~90% accuracy
+- Top 1,000 master groups cover only 4.4% of catalog (18,855 records)
+- master_id='0' is a sentinel (56k unrelated records - don't propagate!)
+
+Use carefully:
+```python
+# Group by master_id
+from collections import defaultdict
+master_groups = defaultdict(list)
+for record in catalog:
+    mid = record.get('master_id', '0')
+    if mid != '0' and mid != '':  # Skip sentinel values
+        master_groups[mid].append(record)
+
+# For large groups (5+ members), query 2-3 and use majority vote
+for master_id, members in master_groups.items():
+    if len(members) >= 5:
+        # Query 2 members
+        # If both positive, propagate positive to rest
+        # If both negative, propagate negative to rest
+        # If mixed, don't propagate
+```
+
+**2. Confidence Boosting with Multiple Features**
+
+If certain combinations have very high precision in training:
+```python
+# Example: "Blue Note" + "1960s" + "Jazz" might be 95%+ positive
+# Extract these as heuristic rules
+vintage_blue_note = (label == "Blue Note") & (year < 1970) & ("Jazz" in genre)
+```
+
+But be careful - overfitting to specific patterns reduces generalization.
+
+================================================================================
+
+DEVELOPMENT WORKFLOW
+
+**1. Feature Engineering & Model Training (local)**
+   - Extract features from training data
+   - Train multiple models (LightGBM, RandomForest, etc.)
+   - Compare validation performance
+   - Select best model
+
+**2. Calibration (critical!)**
+   - Use CalibratedClassifierCV
+   - Verify calibration on validation set
+   - Plot calibration curve to check quality
+
+**3. Threshold Tuning (critical!)**
+   - Use stratified validation split
+   - Grid search thresholds for 90% precision
+   - Maximize recall subject to precision constraint
+   - May use different thresholds for positive/negative
+
+**4. Test on Mock API**
+   - Apply to stripped catalog
+   - Estimate coverage
+   - Use mock API to validate uncertain predictions
+   - Iterate on features/thresholds
+
+**5. Final Validation**
+   - Estimate metrics based on validation performance
+   - Coverage: ~75-80%
+   - Precision: 90%+
+   - Recall: 70-75%
+
+================================================================================
+
+EXPECTED PERFORMANCE
+
+With good feature engineering + calibration + threshold tuning:
+
+**Coverage Breakdown:**
+- ML classifications: ~275-285k records (69-72%)
+- API-validated uncertain: ~12-20k records (3-5%)
+- Total: ~290-300k records (73-76% coverage) ✓
+
+**Quality:**
+- Precision: 90%+ on both classes (via threshold tuning) ✓
+- Recall: 70-75% on both classes ✓
+- API budget: ~1,000 calls for uncertain records ✓
+
+**Key Success Factors:**
+1. Strong feature engineering (especially text fields)
+2. Model calibration (isotonic or Platt scaling)
+3. Threshold tuning on validation set (NOT 0.5 default!)
+4. Using API calls strategically for uncertain predictions
+
+**Common Pitfalls:**
+- Using default 0.5 threshold → won't meet precision requirement
+- Skipping calibration → unreliable probabilities
+- Poor text features → missing signal from artist/label names
+- Over-relying on propagation → only adds ~5%, ML is 70%
+
+================================================================================
+
+NOTES
+
+- The 30k enriched training records are stratified to match test distribution exactly (22.82% positive)
+- Training and evaluation sets are completely separate (clean train/test split, zero overlap)
+- Base rate in evaluation catalog: 22.82% positive (wants > haves), 77.18% negative
+- Training distribution: 22.82% positive (identical to test - no distribution mismatch!)
+- Coverage, precision, AND recall are all critical - all requirements must be met
+- ML-based classification is the primary coverage driver (trained on 30k, applied to 395k)
+- Master_id grouping provides supplemental coverage but releases in same master may have different wants/haves
+- You have ground truth for all 395k records for evaluation (but not visible to your pipeline)
+- Mock API allows rapid iteration during development
+- Same code works with both mock and evaluation API via unified interface

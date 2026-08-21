@@ -1,0 +1,217 @@
+FLIC-A-DISC OPERATING METHODOLOGY
+==================================
+A Personal Record Buying & Debt Reduction Framework
+
+
+CORE TENETS
+-----------
+1. Only handle records you love.
+2. Don't spend any money (the operation is self-funded).
+3. You can walk away at any time with no negative consequences.
+
+These three tenets are mutually reinforcing. Loving the records you handle
+gives you the market knowledge to price and buy accurately. Self-funding
+means no external obligation. The exit condition means no trapped inventory.
+
+
+THE MARGIN TARGET
+-----------------
+Target margin: 40%
+Current realized margin: ~27%, trending upward
+
+All buying decisions are filtered through this margin target at the point
+of purchase — not calculated after the fact. The margin is the buying filter.
+
+Example math (Discogs, ~11% seller fees):
+  Sale price:          $15.00
+  Less Discogs fees:   - $1.65  (~11%)
+  Net proceeds:        $13.35
+  40% margin target:   buy price no more than $8.00
+
+At current average sale price ($15) and volume (100 records/month), the
+gap between 27% and 40% is approximately $2 per record. Closing this
+gap is the primary operational lever.
+
+
+SOURCING STRATEGY
+-----------------
+Primary channel: Discogs, foreign sellers with free shipping thresholds.
+
+This is the core channel and where the model focuses most of its energy.
+Supply is not a constraint — the limiting variables are buying discipline
+and how accurately the model identifies the spread between a foreign
+seller's ask and Discogs market value.
+
+Why this works:
+- No buyer fees on Discogs.
+- Free shipping threshold eliminates shipping cost from the buy side,
+  directly widening margin without needing to find a cheaper record.
+- Foreign sellers are often underpriced relative to Discogs market value,
+  creating the spread that generates margin.
+- The free shipping subsidy from the seller is effectively free money
+  that goes straight to your spread — making this the highest-margin
+  channel available.
+
+The Flic-a-Disc ML model amplifies this strategy by identifying records
+where the spread between what a seller is asking and what the market
+will bear is widest — underpriced listings, overlooked pressings, sellers
+who don't know what they have.
+
+
+BUYING CHANNELS & CARD ASSIGNMENTS
+------------------------------------
+Each credit card is assigned a buying channel. This creates clean
+accounting, makes per-channel ROI visible, and aligns cashback rewards
+with spending categories.
+
+  Card 1 (lowest APR / best cashback):  Discogs overseas (primary channel)
+  Card 2:                                eBay Buy It Now
+  Card 3:                                eBay Auctions
+  Card 4:                                Record stores (in-person retail)
+  PayPal balance:                        CL / FB Marketplace cash deals
+
+Selling income comes in via PayPal. Physical buying cash stays in
+PayPal until needed (liquid but buffered from daily spending).
+
+Note: Airline points cards are lower priority than cashback cards.
+A 2-3% cashback is a guaranteed return. Airline points yield ~1-1.5
+cents per dollar and require redemption to realize value. During a
+debt paydown phase, cashback wins.
+
+
+THE MARGIN SPLIT
+----------------
+Of every dollar of margin realized:
+  50% reinvested into purchasing
+  50% directed to credit card paydown
+
+At current volume and margin:
+  $1,500/month sales × 27% margin = ~$405 margin
+  ~$200 to purchasing, ~$200 to cards
+
+At target margin:
+  $1,500/month sales × 40% margin = ~$600 margin
+  ~$300 to purchasing, ~$300 to cards
+
+The reinvestment half compounds the operation over time. The paydown
+half chips away at debt. Both grow as margin improves.
+
+
+CASH FLOW STRUCTURE
+-------------------
+All selling income:     → PayPal (holding account)
+PayPal surplus:         → Personal checking (1-3 day ACH)
+From personal checking: → Card payments (avalanche method)
+Card purchases:         → Categorized by buying channel (see above)
+
+PayPal functions as a behavioral buffer — keeping liquid cash out of
+the personal checking account reduces the likelihood it gets spent
+before being allocated. CL/FB Marketplace cash needs to stay liquid
+and accessible for quick in-person deals without waiting on ACH.
+
+
+DEBT PAYDOWN METHOD
+-------------------
+Method: Avalanche (highest APR first)
+
+Pay minimums on all cards automatically. Direct the 50% margin
+allocation to the highest-APR card as an additional payment each month.
+As that balance drops, minimum payments drop slightly, freeing
+incrementally more to accelerate paydown.
+
+Milestones to target:
+  1. Get each card below its credit limit (eliminates over-limit risk,
+     begins restoring credit utilization).
+  2. Pay off highest-APR card fully.
+  3. Redirect that card's freed minimum payment to the next card.
+
+
+THE COMPOUNDING EFFECT
+----------------------
+Better buying discipline
+  → Higher margin per record
+    → More purchasing power (50% reinvested)
+      → More records sold
+        → More total margin
+          → More to cards
+            → Lower balances
+              → Lower minimums
+                → More surplus available
+
+The system is slow to start but self-reinforcing. The margin trend
+(27% → 40%) is the leading indicator. Everything else follows from it.
+
+
+FLIC-A-DISC MODEL ROLE
+----------------------
+The ML system is a neural contextual bandit with contrastive encoding,
+trained on scraped Discogs and eBay listings and annotated through
+active use. It serves the methodology in two ways:
+
+1. Taste filter: Surfaces records worth handling — aligned with what
+   you love and what you know well enough to price accurately.
+
+2. Margin signal: Because loving a record correlates with knowing its
+   market, high-confidence model picks are also likely to be records
+   where the spread between ask and realized market price is widest.
+   Underpriced records you recognize; overpriced records you pass on.
+
+The bandit's exploration-exploitation tradeoff maps directly onto
+buying strategy. Exploitation means buying records the model
+confidently predicts will hit 40% margin. Exploration means
+occasionally buying outside that zone to gather new signal.
+
+As the model improves, it increasingly identifies the specific foreign
+listings where the margin gap is largest — which is where the path
+from 27% to 40% lives. Closing that gap is the primary optimization
+target.
+
+
+PLATFORM EXPANSION (FLIC-A-DISC MARKETPLACE)
+---------------------------------------------
+The longer-term vision is opening flic-a-disc.com as a co-op
+marketplace for like-minded sellers who want an alternative to
+Discogs' 11.2% fee structure.
+
+Stack: React/TS frontend, Go backend, Python/Django ML layer,
+PostgreSQL, hosted on DigitalOcean.
+
+Fee model: Cost-plus, transparent, recalculated on a 4-week
+rolling window.
+
+  Per transaction costs:
+    Processing (Helcim):   1.79% + $0.08
+    Overhead (flat):       Total overhead ÷ transaction count
+
+  Overhead pool includes:
+    DigitalOcean hosting + operator stipend + any tooling costs
+
+  Example at 1,000 transactions/month, $50 avg, $600 overhead:
+    Helcim:    ~$0.975/transaction
+    Overhead:  ~$0.60/transaction
+    Total:     ~$1.575/transaction = ~3.15% effective rate
+    vs Discogs: 11.2% = $5.60/transaction
+
+  Seller savings at this volume: ~$4.03 per transaction
+
+As transaction volume grows the overhead component divides across
+more transactions, so the effective rate decreases automatically.
+Sellers have direct incentive to recruit other sellers.
+
+Target for $2,000/month stipend at or below 3% effective rate:
+  ~4,000 transactions/month across ~40 active sellers
+  at $50 average transaction value = $200,000 gross monthly volume
+
+Shipping is passed through at actual cost, seller-defined per
+transaction. It is not a platform revenue source and flows directly
+to the seller, eliminating the fee-circumvention dynamic common
+on other platforms.
+
+
+SUMMARY
+-------
+Buy only records you love, from foreign Discogs sellers with free
+shipping, at prices that leave at least 40% margin after fees. Split
+that margin 50/50 between reinvestment and card paydown. Route all
+cash through PayPal as a behavioral buffer. Pay cards via avalanche.
+Let the model get smarter. Let the margin compound. Build the platform.

@@ -32,11 +32,7 @@ type ItemSummary struct {
 	ItemID           string            `json:"itemId"`
 	Title            string            `json:"title"`
 	Price            *Price            `json:"price,omitempty"`
-	ItemWebURL       string            `json:"itemWebUrl"`
-	ItemEndDate      string            `json:"itemEndDate"`
-	ItemCreationDate string            `json:"itemCreationDate,omitempty"`
 	CurrentBidPrice  *Price            `json:"currentBidPrice,omitempty"`
-	BidCount         int               `json:"bidCount,omitempty"`
 	LocalizedAspects []LocalizedAspect `json:"localizedAspects,omitempty"`
 }
 
@@ -102,22 +98,32 @@ func (c *Client) GetAccessToken() error {
 	return nil
 }
 
-func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
-	// Always refresh token
+func (c *Client) SearchListings(listingType string, hours int) ([]ItemSummary, error) {
 	if err := c.GetAccessToken(); err != nil {
 		return nil, err
 	}
 
-	endTime := time.Now().UTC().Add(time.Duration(hours) * time.Hour)
-	endTimeStr := endTime.Format("2006-01-02T15:04:05.000Z")
+	const (
+		limit     = 200
+		maxItems  = 10000
+		sleepTime = 200 * time.Millisecond
+	)
 
-	allItems := []ItemSummary{}
-	limit := 200
+	sort := "newlyListed"
+	filter := fmt.Sprintf("conditionIds:{3000},itemLocationCountry:US,buyingOptions:{%s}", listingType)
+	if listingType == "AUCTION" {
+		sort = "itemEndDate"
+		startTime := time.Now().UTC().Add(24 * time.Hour).Format("2006-01-02T15:04:05.000Z")
+		endTime := time.Now().UTC().Add(48 * time.Hour).Format("2006-01-02T15:04:05.000Z")
+		filter += fmt.Sprintf(",itemEndDate:[%s..%s]", startTime, endTime)
+	}
+
+	allItems := make([]ItemSummary, 0, maxItems)
 	offset := 0
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 
-	for {
+	for offset < maxItems {
 		searchURL := fmt.Sprintf("%s/buy/browse/v1/item_summary/search", c.BaseURL)
-
 		req, err := http.NewRequest("GET", searchURL, nil)
 		if err != nil {
 			return nil, err
@@ -125,54 +131,53 @@ func (c *Client) SearchAuctionsEndingSoon(hours int) ([]ItemSummary, error) {
 
 		q := req.URL.Query()
 		q.Add("q", "lp")
-		q.Add("category_ids", "176985") // Vinyl Records
-		q.Add("filter", fmt.Sprintf("conditionIds:{3000},itemLocationCountry:US,buyingOptions:{AUCTION},itemEndDate:[..%s]", endTimeStr))
+		q.Add("category_ids", "176985")
+		q.Add("filter", filter)
 		q.Add("limit", strconv.Itoa(limit))
 		q.Add("offset", strconv.Itoa(offset))
-		q.Add("sort", "itemEndDate") // Soonest ending first
+		q.Add("sort", sort)
 		req.URL.RawQuery = q.Encode()
 
 		req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.AccessToken))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-EBAY-C-MARKETPLACE-ID", "EBAY_US")
+		req.Header.Set("Cache-Control", "no-cache")
+		req.Header.Set("Pragma", "no-cache")
 
-		client := &http.Client{Timeout: 30 * time.Second}
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
-
-		body, err := io.ReadAll(resp.Body)
+		body, readErr := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if readErr != nil {
+			return nil, readErr
+		}
 
 		if resp.StatusCode != 200 {
-			return nil, fmt.Errorf("search failed: %s", string(body))
+			return nil, fmt.Errorf("search failed (offset %d): %s", offset, string(body))
 		}
 
 		var sr SearchResponse
 		if err := json.Unmarshal(body, &sr); err != nil {
-			return nil, fmt.Errorf("failed to decode search response: %w", err)
+			return nil, fmt.Errorf("failed to decode: %w", err)
 		}
 
-		// Append first
-		allItems = append(allItems, sr.ItemSummaries...)
-		log.Printf("Fetched %d items (offset %d, total available: %d)", len(sr.ItemSummaries), offset, sr.Total)
-
-		// Stop if eBay returned empty batch
 		if len(sr.ItemSummaries) == 0 {
-			log.Printf("Empty batch at offset %d — stopping pagination", offset)
 			break
 		}
 
-		// Stop if we've hit the reported total
-		if offset+limit >= sr.Total {
-			break
+		remaining := maxItems - len(allItems)
+		if len(sr.ItemSummaries) > remaining {
+			sr.ItemSummaries = sr.ItemSummaries[:remaining]
 		}
+
+		allItems = append(allItems, sr.ItemSummaries...)
+		log.Printf("Fetched %d items (offset %d, total collected %d, total available %d)",
+			len(sr.ItemSummaries), offset, len(allItems), sr.Total)
 
 		offset += limit
-
-		// Optional: Avoid throttling
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(sleepTime)
 	}
 
 	return allItems, nil

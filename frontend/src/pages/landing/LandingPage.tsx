@@ -1,39 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Login } from '../../components/Login';
-import type { LandingPageProps, DiscogsRecord } from '../../types/interfaces';
+import type { LandingPageProps, DiscogsRecord, TodoItem } from '../../types';
 import './landing.css';
-import { mlFetch } from '../../api/client';
+import { mlFetch, apiFetch } from '../../api/client';
 
-interface Stats {
-  discogs: {
-    total: number;
-    evaluated: number;
-    keepers: number;
-    non_keepers: number;
-  };
-  ebay: {
-    total: number;
-    evaluated: number;
-    enriched: number;
-  };
-  training: {
-    instances: number;
-    batch_count: number;
-  };
-  model: {
-    stats: any;
-    vocab_size: number;
-    avg_accuracy: number | null;
-  };
-}
+
 
 function LandingPage({ onLogin, onLogout }: LandingPageProps) {
   const [recordOfTheDay, setRecordOfTheDay] = useState<DiscogsRecord | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [stats, setStats] = useState<Stats | null>(null);
-  const [statsLoading, setStatsLoading] = useState<boolean>(true);
-  const [statsError, setStatsError] = useState<string | null>(null);
+  const [recentDone, setRecentDone] = useState<TodoItem[]>([]);
+  
 
   useEffect(() => {
     const fetchRecordOfTheDay = async () => {
@@ -53,28 +31,22 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
       }
     };
 
-    const fetchStats = async () => {
+    
+
+    const fetchRecentDone = async () => {
       try {
-        const response = await mlFetch('stats/', {
-          method: "GET",
-        });
-        console.log('Stats response status:', response.status);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch statistics: ${response.status} ${response.statusText}`);
+        const response = await apiFetch('api/todos/recent');
+        if (response.ok) {
+          const data = await response.json();
+          setRecentDone(data);
         }
-        const data = await response.json();
-        console.log('Stats data:', data);
-        setStats(data);
       } catch (err) {
-        console.error('Stats fetch error:', err);
-        setStatsError((err as Error).message);
-      } finally {
-        setStatsLoading(false);
+        console.error("failed to fetch recent dones", err);
       }
     };
 
     fetchRecordOfTheDay();
-    fetchStats();
+    fetchRecentDone();
   }, []);
 
   return (
@@ -98,17 +70,13 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
 
       {/* Navbar */}
       <div className="navbar">
-        <a href="/">home</a> | 
         <a href="/about">about</a> | 
         <a href="/faq">faq</a> | 
         <a href="/writings">writings</a> | 
-        <a href="/youbreakifix">you-break-i-fix</a> | 
-        <a href="/spotify">softdump spotify</a> | 
         <a href="https://https://github.com/benjicaulfield/flic-a-disc/" target="_blank">github</a> | 
         <a href="https://https://www.linkedin.com/in/benjamin-caulfield-265b90159/" target="_blank">linkedIn</a> | 
         <a href="https://bsky.app/profile/benjicaulfield" target="_blank">bsky</a> | 
         <a href="/contact">contact</a> | 
-        <a href="/visitors">visitors</a>
       </div>
 
       <div className="content">
@@ -160,7 +128,6 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
               <p><strong>Strategy:</strong> Adaptive epsilon-greedy with uncertainty exploration</p>
               <p><strong>Infrastructure:</strong> Custom rate limiter, sparse matrices, batch inference</p>
               <p><strong>Data:</strong> Discogs API, eBay APIs</p>
-              <p><strong>LLM:</strong> Claude API in the manner of music writer Byron Coley</p>
             </div>
           </div>
         </div>
@@ -175,36 +142,53 @@ function LandingPage({ onLogin, onLogout }: LandingPageProps) {
             </div>
           </div>
 
-          {/* Statistics Section */}
-          <div className="section stats-section">
-            <div className="section-header">COLD HARD STATISTICS</div>
+          
+          {/* Recently Completed */}
+          <div className="section">
+            <div className="section-header">RECENTLY COMPLETED</div>
             <div className="section-content">
-              {statsLoading && <p>Loading statistics...</p>}
-              {statsError && <p>Error: {statsError}</p>}
-              {stats && (
-                <div className="stats-grid">
-                  <div className="stats-group">
-                    <h3>Discogs Collection</h3>
-                    <p><strong>Total Records:</strong> {stats.discogs.total.toLocaleString()}</p>
-                    <p><strong>Evaluated:</strong> {stats.discogs.evaluated.toLocaleString()}</p>
-                    <p><strong>Keepers:</strong> {stats.discogs.keepers.toLocaleString()}</p>
-                    <p><strong>Non-Keepers:</strong> {stats.discogs.non_keepers.toLocaleString()}</p>
+              {recentDone.length === 0 ? (
+                <p>Nothing completed yet.</p>
+              ) : (
+                recentDone.map(todo => (
+                  <div key={todo.id} style={{ marginBottom: '6px' }}>
+                    <span>✓ {todo.text}</span>
+                    <span style={{ marginLeft: '8px', opacity: 0.6, fontSize: '0.85em' }}>
+                      {new Date(todo.updated_at).toLocaleDateString()}
+                    </span>
                   </div>
-                  
-                  <div className="stats-group">
-                    <h3>eBay Listings</h3>
-                    <p><strong>Total Listings:</strong> {stats.ebay.total.toLocaleString() ?? '0'}</p>
-                  </div>
-                  
-                  <div className="stats-group">
-                    <h3>Machine Learning</h3>
-                    <p><strong>Training Examples:</strong> {stats.training.instances.toLocaleString()}</p>
-                    <p><strong>Batch Count:</strong> {stats.training.batch_count}</p>
-                    <p><strong>Vocab Size:</strong> {stats.model.vocab_size.toLocaleString()}</p>
-                    <p><strong>Avg Accuracy:</strong> {stats.model.avg_accuracy ? `${(stats.model.avg_accuracy * 100).toFixed(1)}%` : 'N/A'}</p>
-                  </div>
-                </div>
+                ))
               )}
+            </div>
+          </div>
+
+          {/* Tour Section */}
+          <div className="section tour-section">
+            <div className="section-header">TAKE A TOUR</div>
+            <div className="section-content">
+              <p style={{ marginBottom: '12px' }}>
+                Want to look around? See the neural bandit in action, explore the dashboard,
+                watch eBay auctions get scored, and peek at the knapsack solver finding optimal record hauls.
+              </p>
+              <a href="/tour" style={{ textDecoration: 'none' }}>
+                <button
+                  style={{
+                    width: '100%',
+                    padding: '10px',
+                    backgroundColor: '#007acc',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#005a9e'}
+                  onMouseOut={(e) => e.currentTarget.style.backgroundColor = '#007acc'}
+                >
+                  START TOUR →
+                </button>
+              </a>
             </div>
           </div>
         </div>

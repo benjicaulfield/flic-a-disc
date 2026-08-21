@@ -23,7 +23,8 @@ type EbayHandler struct {
 	ebayClient      *ebay.Client
 	db              *gorm.DB
 	mu              sync.RWMutex
-	cachedListings  []gin.H
+	cachedAuctions  []FilteredListing
+	cachedBIN       []FilteredListing
 	fetchInProgress bool
 }
 
@@ -35,147 +36,215 @@ func NewEbayHandler(appID, certID string, db *gorm.DB) *EbayHandler {
 	return h
 }
 
-func (h *EbayHandler) fetchAndCacheListings() {
-	log.Println("Fetching eBay auctions ending in next 24-48 hours...")
-	log.Println("🚀 fetchAndCacheListings() CALLED")
+type Price struct {
+	Value string `json:"value"`
+}
 
-	allResults, err := h.ebayClient.SearchAuctionsEndingSoon(48)
+type RawListing struct {
+	EbayID    string `json:"ebay_id"`
+	EbayTitle string `json:"ebay_title"`
+	Price     string `json:"price"`
+}
+
+type FilteredListing struct {
+	EbayID    string  `json:"ebay_id"`
+	EbayTitle string  `json:"ebay_title"`
+	Price     string  `json:"price"`
+	Score     float64 `json:"tfidf_score"` // or whatever the ML service calls it
+}
+
+type ScoredListing struct {
+	EbayID     string  `json:"ebay_id"`
+	EbayTitle  string  `json:"ebay_title"`
+	Price      string  `json:"price"`
+	TfidfScore float64 `json:"tfidf_score"`
+}
+
+type filterRequest struct {
+	Listings []RawListing `json:"listings"`
+	TopN     int          `json:"top_n"`
+}
+
+var result struct {
+	TopListings []FilteredListing `json:"top_listings"`
+}
+
+func (h *EbayHandler) fetchAndCacheAuctions() error {
+	allResults, err := h.ebayClient.SearchListings("AUCTION", 48)
 	if err != nil {
 		log.Printf("Failed to fetch listings: %v", err)
-		return
+		return err
 	}
-
-	now := time.Now()
-	cutoffStart := now.Add(24 * time.Hour) // 24 hours from now
-	cutoffEnd := now.Add(48 * time.Hour)   // 48 hours from now
-
-	var raw []gin.H
+	var raw []RawListing
 	for _, item := range allResults {
-		endTime, err := time.Parse(time.RFC3339, item.ItemEndDate)
-		if err != nil {
-			log.Printf("Failed to parse end time for item %s: %v", item.ItemID, err)
-			continue
+		var price string
+		if item.CurrentBidPrice != nil {
+			price = item.CurrentBidPrice.Value
+		} else if item.Price != nil {
+			price = item.Price.Value
 		}
-		if endTime.After(cutoffStart) && endTime.Before(cutoffEnd) {
-			var priceValue string
-
-			if item.Price != nil {
-				priceValue = item.Price.Value
-			}
-			currentBid := priceValue
-			if item.CurrentBidPrice != nil {
-				currentBid = item.CurrentBidPrice.Value
-			}
-
-			raw = append(raw, gin.H{
-				"ebay_id":     item.ItemID,
-				"ebay_title":  item.Title,
-				"price":       priceValue,
-				"current_bid": currentBid,
-				"bid_count":   item.BidCount,
-				"url":         item.ItemWebURL,
-				"end_date":    item.ItemEndDate,
-			})
-		}
+		raw = append(raw, RawListing{
+			EbayID:    item.ItemID,
+			EbayTitle: item.Title,
+			Price:     price,
+		})
 	}
 
 	log.Printf("Found %d raw listings from ebay", len(raw))
 
-	filteredListings, err := h.filterListingsByTFIDF(raw)
+	filteredListings, allScored, err := h.filterListingsByTFIDF(raw)
 	if err != nil {
 		log.Printf("Failed to filter listings: %v", err)
-		return
+		return err
 	}
 
-	log.Printf("TF-IDF filter passed %d/%d listings", len(filteredListings), len(raw))
+	if err := h.saveToCSV(allScored); err != nil {
+		log.Printf("failed to write auction CSV")
+	}
 
 	h.mu.Lock()
-	h.cachedListings = filteredListings
+	h.cachedAuctions = filteredListings
 	h.mu.Unlock()
+
 	log.Printf("✅ Cached %d filtered listings in memory", len(filteredListings))
+	return nil
 }
 
-// ✅ New helper function to call Python filter
-func (h *EbayHandler) filterListingsByTFIDF(listings []gin.H) ([]gin.H, error) {
+func (h *EbayHandler) fetchAndCacheBuyItNows() error {
+	allResults, err := h.ebayClient.SearchListings("FIXED_PRICE", 0)
+	if err != nil {
+		log.Printf("Failed to fetch listings: %v", err)
+		return err
+	}
+	var raw []RawListing
+	for _, item := range allResults {
+		var price string
+		if item.CurrentBidPrice != nil {
+			price = item.CurrentBidPrice.Value
+		} else if item.Price != nil {
+			price = item.Price.Value
+		}
+		raw = append(raw, RawListing{
+			EbayID:    item.ItemID,
+			EbayTitle: item.Title,
+			Price:     price,
+		})
+	}
+
+	log.Printf("Found %d raw listings from ebay", len(raw))
+
+	filteredListings, allScored, err := h.filterListingsByTFIDF(raw)
+	if err != nil {
+		log.Printf("Failed to filter listings: %v", err)
+		return err
+	}
+
+	if err := h.saveToCSV(allScored); err != nil {
+		log.Printf("failed to write auction CSV")
+	}
+
+	h.mu.Lock()
+	h.cachedBIN = filteredListings
+	h.mu.Unlock()
+
+	log.Printf("✅ Cached %d filtered listings in memory", len(filteredListings))
+	return nil
+}
+
+func (h *EbayHandler) filterListingsByTFIDF(listings []RawListing) ([]FilteredListing, []ScoredListing, error) {
 	mlURL := os.Getenv("ML_SERVICE_URL")
 	if mlURL == "" {
 		mlURL = "http://localhost:8001"
 	}
 	filterURL := mlURL + "/ml/ebay_title_similarity_filter/"
-	requestBody := map[string]interface{}{
-		"listings": listings,
-		"top_n":    1000,
+
+	if len(listings) > 0 {
+		b, _ := json.Marshal(listings[0])
+		log.Printf("sample listing JSON: %s", string(b))
 	}
 
-	jsonBody, err := json.Marshal(requestBody)
+	jsonBody, err := json.Marshal(filterRequest{
+		Listings: listings,
+		TopN:     1000,
+	})
+
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	resp, err := http.Post(filterURL, "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	defer resp.Body.Close()
 
 	var result struct {
-		TopListings []gin.H `json:"top_listings"`
+		TopListings []FilteredListing `json:"top_listings"`
+		AllScored   []ScoredListing   `json:"all_scored"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
+	log.Printf("decoded %d top listings, %d all scored", len(result.TopListings), len(result.AllScored))
 
-	return result.TopListings, nil
+	return result.TopListings, result.AllScored, nil
 }
 
-func (h *EbayHandler) TriggerFetch(c *gin.Context) {
-	log.Printf("🔵 TriggerFetch: Request received from %s", c.ClientIP())
-
+func (h *EbayHandler) TriggerFetchAuctions(c *gin.Context) {
 	h.mu.Lock()
-	log.Printf("🔵 TriggerFetch: Lock acquired, fetchInProgress=%v", h.fetchInProgress)
 
 	if h.fetchInProgress {
 		h.mu.Unlock()
-		log.Printf("🔴 TriggerFetch: REJECTED - fetch already in progress")
 		c.JSON(409, gin.H{"message": "Fetch already in progress"})
 		return
 	}
 
 	h.fetchInProgress = true
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=true, releasing lock")
 	h.mu.Unlock()
-
-	log.Printf("🟢 TriggerFetch: Starting fetchAndCacheListings()")
-	h.fetchAndCacheListings()
-	log.Printf("🟢 TriggerFetch: fetchAndCacheListings() completed")
-
+	h.fetchAndCacheAuctions()
 	h.mu.Lock()
 	h.fetchInProgress = false
-	log.Printf("🟢 TriggerFetch: Set fetchInProgress=false")
 	h.mu.Unlock()
 
-	log.Printf("🟢 TriggerFetch: Sending 200 response")
 	c.JSON(200, gin.H{"message": "Fetch complete"})
-	log.Printf("🟢 TriggerFetch: Response sent, exiting")
 }
 
-func (h *EbayHandler) GetCachedListings(c *gin.Context) {
-	h.mu.RLock()
-	listings := h.cachedListings
-	h.mu.RUnlock()
+func (h *EbayHandler) TriggerFetchBuyItNows(c *gin.Context) {
+	h.mu.Lock()
 
-	if listings == nil {
-		listings = []gin.H{}
+	if h.fetchInProgress {
+		h.mu.Unlock()
+		c.JSON(409, gin.H{"message": "Fetch already in progress"})
+		return
 	}
 
-	c.JSON(200, gin.H{
-		"listings": listings,
-	})
+	h.fetchInProgress = true
+	h.mu.Unlock()
+	h.fetchAndCacheBuyItNows()
+	h.mu.Lock()
+	h.fetchInProgress = false
+	h.mu.Unlock()
+
+	c.JSON(200, gin.H{"message": "Fetch complete"})
 }
 
-func (h *EbayHandler) saveToCSV(listings []gin.H) error {
-	filename := time.Now().Format("ebay_auctions_2006-01-02.csv")
+func (h *EbayHandler) GetCachedBIN(c *gin.Context) {
+	h.mu.Lock()
+	listings := h.cachedBIN
+	h.mu.Unlock()
+	c.JSON(200, gin.H{"listings": listings})
+}
+
+func (h *EbayHandler) GetCachedAuctions(c *gin.Context) {
+	h.mu.Lock()
+	listings := h.cachedAuctions
+	h.mu.Unlock()
+	c.JSON(200, gin.H{"listings": listings})
+}
+
+func (h *EbayHandler) saveToCSV(listings []ScoredListing) error {
+	filename := time.Now().Format("ebay_buyitnow_2006-01-02.csv")
 	file, err := os.Create(filename)
 	if err != nil {
 		return err
@@ -186,18 +255,15 @@ func (h *EbayHandler) saveToCSV(listings []gin.H) error {
 	defer writer.Flush()
 
 	// Header
-	writer.Write([]string{"ebay_id", "title", "price", "current_bid", "bid_count", "url", "end_date"})
+	writer.Write([]string{"ebay_id", "ebay_title", "price", "tfidf_score"})
 
 	// Data
 	for _, l := range listings {
 		writer.Write([]string{
-			l["ebay_id"].(string),
-			l["title"].(string),
-			l["price"].(string),
-			l["current_bid"].(string),
-			fmt.Sprintf("%d", l["bid_count"].(int)),
-			l["url"].(string),
-			l["end_date"].(string),
+			l.EbayID,
+			l.EbayTitle,
+			l.Price,
+			fmt.Sprintf("%.4f", l.TfidfScore),
 		})
 	}
 
@@ -215,6 +281,7 @@ func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
 		return
 	}
 
+	saved := 0
 	for _, ebayID := range req.EbayIDs {
 		item, err := h.ebayClient.LookupByItemID(ebayID)
 		if err != nil {
@@ -222,42 +289,39 @@ func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
 			continue
 		}
 
-		artist, album, label, format, year, recordCondition, sleeveCondition, genre, style := parseRecordMetadata(item)
+		artist, album, label, format, year, recordCondition, genre, style := parseRecordMetadata(item)
 
-		endDate, _ := time.Parse(time.RFC3339, item.ItemEndDate)
-		creationDate, _ := time.Parse(time.RFC3339, item.ItemCreationDate)
-
-		currentBid := item.Price.Value
-		if item.CurrentBidPrice != nil {
-			currentBid = item.CurrentBidPrice.Value
+		price := ""
+		if item.Price != nil {
+			price = item.Price.Value
 		}
 
 		listing := models.EbayListing{
-			EbayID:          ebayID,
-			EbayTitle:       item.Title,
-			Price:           item.Price.Value,
-			CurrentBid:      currentBid,
-			BidCount:        item.BidCount,
-			EndDate:         endDate,
-			CreationDate:    creationDate,
-			Artist:          artist,
-			Album:           album,
-			Label:           label,
-			Format:          format,
-			Year:            year,
-			RecordCondition: recordCondition,
-			SleeveCondition: sleeveCondition,
-			Genre:           genre,
-			Style:           style,
+			EbayID:         ebayID,
+			EbayTitle:      item.Title,
+			Price:          price,
+			Artist:         artist,
+			Title:          album,
+			Label:          label,
+			Format:         models.StringSlice{format},
+			Year:           year,
+			MediaCondition: recordCondition,
+			Genre:          genre,
+			Style:          style,
 		}
 
-		h.db.Create(&listing)
+		if err := h.db.Where(models.EbayListing{EbayID: ebayID}).
+			FirstOrCreate(&listing).Error; err != nil {
+			log.Printf("Failed to save listing %s: %v", ebayID, err)
+			continue
+		}
+		saved++
 	}
 
-	c.JSON(200, gin.H{"message": "Saved", "count": len(req.EbayIDs)})
+	c.JSON(200, gin.H{"message": "Saved", "count": saved})
 }
 
-func parseRecordMetadata(item *ebay.ItemSummary) (artist, album, label, format, year, recordCondition, sleeveCondition, genre, style string) {
+func parseRecordMetadata(item *ebay.ItemSummary) (artist, album, label, format, year, recordCondition, genre, style string) {
 	for _, aspect := range item.LocalizedAspects {
 		switch aspect.Name {
 		case "Artist":
@@ -280,8 +344,6 @@ func parseRecordMetadata(item *ebay.ItemSummary) (artist, album, label, format, 
 			}
 		case "Record Grading":
 			recordCondition = aspect.Value
-		case "Sleeve Grading":
-			sleeveCondition = aspect.Value
 		case "Genre":
 			genre = aspect.Value
 		case "Style":
@@ -344,7 +406,7 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 		}
 
 		// Parse metadata from eBay response
-		artist, album, label, format, year, recordCondition, sleeveCondition, genre, style :=
+		artist, album, label, format, year, recordCondition, genre, style :=
 			parseRecordMetadata(itemDetails)
 
 		h.db.Model(&models.EbayListing{}).
@@ -356,7 +418,6 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 				"format":           format,
 				"year":             year,
 				"record_condition": recordCondition,
-				"sleeve_condition": sleeveCondition,
 				"genre":            genre,
 				"style":            style,
 			})
@@ -399,21 +460,19 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 		}
 
 		results = append(results, gin.H{
-			"id":          listing.ID,
-			"ebay_id":     listing.EbayID,
-			"title":       listing.EbayTitle,
-			"artist":      listing.Artist,
-			"album":       listing.Album,
-			"label":       listing.Label,
-			"genre":       listing.Genre,
-			"style":       listing.Style,
-			"year":        listing.Year,
-			"format":      listing.Format,
-			"condition":   listing.RecordCondition,
-			"prediction":  pred,
-			"price":       listing.Price,
-			"current_bid": listing.CurrentBid,
-			"end_date":    listing.EndDate,
+			"id":         listing.ID,
+			"ebay_id":    listing.EbayID,
+			"title":      listing.EbayTitle,
+			"artist":     listing.Artist,
+			"album":      listing.Title,
+			"label":      listing.Label,
+			"genre":      listing.Genre,
+			"style":      listing.Style,
+			"year":       listing.Year,
+			"format":     listing.Format,
+			"condition":  listing.MediaCondition,
+			"prediction": pred,
+			"price":      listing.Price,
 		})
 	}
 
@@ -430,26 +489,5 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 			"stage1_candidates": firstPassResult.TopN,
 			"stage2_enriched":   enrichedCount,
 		},
-	})
-}
-
-func (h *EbayHandler) GetUnannotatedListings(c *gin.Context) {
-	h.mu.RLock()
-	cached := h.cachedListings
-	h.mu.RUnlock()
-
-	if len(cached) == 0 {
-		c.JSON(200, gin.H{
-			"listings": []gin.H{},
-			"total":    0,
-			"message":  "No listings cached. Click Refresh to fetch from eBay.",
-		})
-		return
-	}
-	log.Printf("Returning %d cached listings", len(cached))
-
-	c.JSON(200, gin.H{
-		"listings": cached,
-		"total":    len(cached),
 	})
 }

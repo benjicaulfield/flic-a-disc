@@ -44,6 +44,8 @@ func Initialize(cfg config.DatabaseConfig) (*gorm.DB, error) {
 func AutoMigrate(db *gorm.DB) error {
 	log.Println("Running database migrations...")
 
+	db.Exec(`UPDATE ebay_listings SET format = '[]' WHERE format IS NULL OR format = '' OR format !~ '^\[.*\]$'`)
+
 	err := db.AutoMigrate(
 		&models.Bandit{},
 		&models.BanditTrainingInstance{},
@@ -51,6 +53,7 @@ func AutoMigrate(db *gorm.DB) error {
 		&models.BatchPerformance{},
 		&models.EbayListing{},
 		&models.User{},
+		&models.Todo{},
 	)
 	if err != nil {
 		return fmt.Errorf("failed to migrate database: %w", err)

@@ -1,0 +1,645 @@
+"""
+Discogs Active Learning Pipeline
+Classifies vinyl LP releases using ML + iterative cluster-based active learning
+"""
+
+import json
+import numpy as np
+from collections import defaultdict
+from scipy.sparse import hstack, csr_matrix
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.preprocessing import MultiLabelBinarizer, StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import precision_score, recall_score, accuracy_score
+from lightgbm import LGBMClassifier
+from sklearn.calibration import CalibratedClassifierCV
+
+import logging
+import os
+import sys
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('pipeline_8.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Django setup
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ml_path = os.path.join(project_root, 'ml')
+if ml_path not in sys.path:
+    sys.path.insert(0, ml_path)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+
+from bandit.utils.get_user_inventory import authenticate_client
+from bandit.models import Record
+from django.utils import timezone
+
+# Initialize authenticated Discogs client
+logger.info("Initializing authenticated Discogs client...")
+api_client_global = authenticate_client()
+logger.info("Client authenticated successfully")
+
+# API call counter and helper
+api_call_counter = [0]  # Use list for mutable global
+
+def get_release_logged(release_id):
+    """Helper function to get release with logging and DB save."""
+    api_call_counter[0] += 1
+    logger.info(f"API call {api_call_counter[0]}: Querying release {release_id}")
+
+    result = api_client_global.get_release(release_id)
+
+    # Extract wants/haves from community stats
+    stats = (result.data.get('stats') or {}).get('community') or {}
+    wants = stats.get('in_wantlist', 0)
+    haves = stats.get('in_collection', 0)
+
+    logger.info(f"API call {api_call_counter[0]}: Release {release_id} - wants={wants}, haves={haves}")
+
+    # Create a dict-like result for backward compatibility
+    result_dict = {
+        'wants': wants,
+        'haves': haves,
+        'data': result.data,
+    }
+
+    # Save to database
+    try:
+        Record.objects.get_or_create(
+            discogs_id=str(release_id),
+            defaults={
+                'title': result.data.get('title', ''),
+                'artist': ', '.join(a.get('name', '') for a in result.data.get('artists', [])),
+                'year': result.data.get('year'),
+                'genres': result.data.get('genres', []),
+                'styles': result.data.get('styles', []),
+                'label': result.data.get('labels', [{}])[0].get('name', '') if result.data.get('labels') else '',
+                'country': result.data.get('country', ''),
+                'format': result.data.get('formats', [{}])[0].get('name', '') if result.data.get('formats') else '',
+                'master_id': result.data.get('master_id'),
+                'wants': wants,
+                'haves': haves,
+                'added': timezone.now(),
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save record {release_id} to database: {e}")
+
+    return result_dict
+
+
+
+class FeatureEngineer:
+    """Handles feature extraction from catalog metadata"""
+    
+    def __init__(self):
+        self.artist_vec = TfidfVectorizer(
+            max_features=300,
+            ngram_range=(1, 2),
+            min_df=2,
+            lowercase=True,
+            strip_accents='unicode'
+        )
+        self.title_vec = TfidfVectorizer(
+            max_features=200,
+            ngram_range=(1, 2),
+            min_df=2,
+            lowercase=True,
+            strip_accents='unicode'
+        )
+        self.label_vec = TfidfVectorizer(
+            max_features=200,
+            min_df=2,
+            lowercase=True,
+            strip_accents='unicode'
+        )
+        self.genre_mlb = MultiLabelBinarizer()
+        self.style_mlb = MultiLabelBinarizer()
+        self.year_scaler = StandardScaler()
+        self.country_labels = {}
+        
+    def fit_transform(self, records):
+        """Fit on training data and transform"""
+        artists = [str(r.get('artist', '')) for r in records]
+        titles = [str(r.get('title', '')) for r in records]
+        labels = [str(r.get('label', '')) for r in records]
+        genres = [r.get('genre', []) if r.get('genre') else [] for r in records]
+        styles = [r.get('style', []) if r.get('style') else [] for r in records]
+        years = np.array([self._parse_year(r.get('year')) for r in records])
+        countries = [str(r.get('country', 'Unknown')) if r.get('country') else 'Unknown' for r in records]
+        
+        # Fit and transform text features
+        artist_features = self.artist_vec.fit_transform(artists)
+        title_features = self.title_vec.fit_transform(titles)
+        label_features = self.label_vec.fit_transform(labels)
+        
+        # Fit and transform categorical features
+        genre_features = self.genre_mlb.fit_transform(genres)
+        style_features = self.style_mlb.fit_transform(styles)
+        
+        # Fit and transform numeric features
+        year_features = self.year_scaler.fit_transform(years.reshape(-1, 1))
+        
+        # Encode countries
+        unique_countries = sorted(set(countries))
+        self.country_labels = {c: i for i, c in enumerate(unique_countries)}
+        country_features = np.array([self.country_labels.get(c, 0) for c in countries]).reshape(-1, 1)
+        
+        # Create year bins (vintage indicator)
+        year_bins = self._create_year_bins(years)
+        
+        # Combine all features
+        X = hstack([
+            artist_features,
+            title_features,
+            label_features,
+            genre_features,
+            style_features,
+            year_features,
+            country_features,
+            year_bins
+        ])
+        
+        return X
+    
+    def transform(self, records):
+        """Transform new data using fitted transformers"""
+        artists = [str(r.get('artist', '')) for r in records]
+        titles = [str(r.get('title', '')) for r in records]
+        labels = [str(r.get('label', '')) for r in records]
+        genres = [r.get('genre', []) if r.get('genre') else [] for r in records]
+        styles = [r.get('style', []) if r.get('style') else [] for r in records]
+        years = np.array([self._parse_year(r.get('year')) for r in records])
+        countries = [str(r.get('country', 'Unknown')) if r.get('country') else 'Unknown' for r in records]
+        
+        # Transform text features
+        artist_features = self.artist_vec.transform(artists)
+        title_features = self.title_vec.transform(titles)
+        label_features = self.label_vec.transform(labels)
+        
+        # Transform categorical features
+        genre_features = self.genre_mlb.transform(genres)
+        style_features = self.style_mlb.transform(styles)
+        
+        # Transform numeric features
+        year_features = self.year_scaler.transform(years.reshape(-1, 1))
+        country_features = np.array([self.country_labels.get(c, 0) for c in countries]).reshape(-1, 1)
+        
+        # Create year bins
+        year_bins = self._create_year_bins(years)
+        
+        # Combine all features
+        X = hstack([
+            artist_features,
+            title_features,
+            label_features,
+            genre_features,
+            style_features,
+            year_features,
+            country_features,
+            year_bins
+        ])
+        
+        return X
+    
+    def _parse_year(self, year):
+        """Parse year field to numeric"""
+        if isinstance(year, (int, float)):
+            return int(year) if not np.isnan(year) else 1980
+        if isinstance(year, str):
+            try:
+                return int(year)
+            except:
+                return 1980
+        return 1980
+    
+    def _create_year_bins(self, years):
+        """Create decade bins and vintage indicators"""
+        bins = np.zeros((len(years), 3))
+        for i, year in enumerate(years):
+            # Decade (normalized)
+            bins[i, 0] = (year - 1950) / 10.0
+            # Is vintage (pre-1980)
+            bins[i, 1] = 1 if year < 1980 else 0
+            # Is very old (pre-1960)
+            bins[i, 2] = 1 if year < 1960 else 0
+        return csr_matrix(bins)
+
+
+class ThresholdTuner:
+    """Tunes classification thresholds for precision requirements"""
+    
+    @staticmethod
+    def find_thresholds(y_true, y_probs, target_precision=0.90, verbose=True):
+        """
+        Find optimal thresholds for positive and negative classes
+        that meet precision requirements while maximizing recall
+        """
+        # Find positive threshold (ruled_in)
+        best_pos_threshold = 0.5
+        best_pos_recall = 0
+        best_pos_precision = 0
+        
+        for threshold in np.arange(0.30, 0.95, 0.01):
+            pos_preds = y_probs >= threshold
+            
+            if pos_preds.sum() == 0:
+                continue
+            
+            prec = precision_score(y_true, pos_preds, zero_division=0)
+            rec = recall_score(y_true, pos_preds, zero_division=0)
+            
+            if prec >= target_precision:
+                if rec > best_pos_recall:
+                    best_pos_recall = rec
+                    best_pos_threshold = threshold
+                    best_pos_precision = prec
+        
+        # Find negative threshold (ruled_out)
+        best_neg_threshold = 0.5
+        best_neg_recall = 0
+        best_neg_precision = 0
+        
+        for threshold in np.arange(0.05, 0.70, 0.01):
+            neg_preds = y_probs < threshold
+            
+            if neg_preds.sum() == 0:
+                continue
+            
+            # For negatives, we need to invert the labels
+            y_neg = ~y_true.astype(bool)
+            prec = precision_score(y_neg, neg_preds, zero_division=0)
+            rec = recall_score(y_neg, neg_preds, zero_division=0)
+            
+            if prec >= target_precision:
+                if rec > best_neg_recall:
+                    best_neg_recall = rec
+                    best_neg_threshold = threshold
+                    best_neg_precision = prec
+        
+        if verbose:
+            print(f"\nThreshold Tuning Results:")
+            print(f"Positive threshold: {best_pos_threshold:.3f} (precision: {best_pos_precision:.3f}, recall: {best_pos_recall:.3f})")
+            print(f"Negative threshold: {best_neg_threshold:.3f} (precision: {best_neg_precision:.3f}, recall: {best_neg_recall:.3f})")
+            
+            # Estimate coverage
+            n_pos = (y_probs >= best_pos_threshold).sum()
+            n_neg = (y_probs < best_neg_threshold).sum()
+            coverage = (n_pos + n_neg) / len(y_probs)
+            print(f"Expected ML coverage: {coverage:.1%}")
+        
+        return best_pos_threshold, best_neg_threshold
+
+
+class ClusterManager:
+    """Manages label and artist clusters for active learning"""
+    
+    def __init__(self, catalog, training_data):
+        self.catalog = catalog
+        self.label_groups = defaultdict(list)
+        self.artist_groups = defaultdict(list)
+        
+        # Build cluster indices
+        for idx, record in enumerate(catalog):
+            label = str(record.get('label', '')).strip()
+            artist = str(record.get('artist', '')).strip()
+            if label:
+                self.label_groups[label].append(idx)
+            if artist:
+                self.artist_groups[artist].append(idx)
+        
+        # Initialize cluster statistics from training data
+        self.label_stats = defaultdict(lambda: {'pos': 0, 'total': 0})
+        self.artist_stats = defaultdict(lambda: {'pos': 0, 'total': 0})
+        
+        for record in training_data:
+            label = str(record.get('label', '')).strip()
+            artist = str(record.get('artist', '')).strip()
+            is_pos = record['wants'] > record['haves']
+            
+            if label:
+                self.label_stats[label]['total'] += 1
+                if is_pos:
+                    self.label_stats[label]['pos'] += 1
+            
+            if artist:
+                self.artist_stats[artist]['total'] += 1
+                if is_pos:
+                    self.artist_stats[artist]['pos'] += 1
+    
+    def get_cluster_positive_rate(self, field, key):
+        """Get current positive rate estimate for a cluster"""
+        stats = self.label_stats if field == 'label' else self.artist_stats
+        
+        if key not in stats or stats[key]['total'] == 0:
+            return 0.2282  # Prior from training distribution
+        
+        return stats[key]['pos'] / stats[key]['total']
+    
+    def update_cluster_stats(self, field, key, is_positive):
+        """Update cluster statistics with new observation"""
+        stats = self.label_stats if field == 'label' else self.artist_stats
+        stats[key]['total'] += 1
+        if is_positive:
+            stats[key]['pos'] += 1
+    
+    def find_best_cluster_to_query(self, uncertain_indices):
+        """Find the cluster with most uncertain members"""
+        uncertain_set = set(uncertain_indices)
+        
+        best_cluster_key = None
+        best_field = None
+        best_indices = []
+        
+        # Check label clusters
+        for label, indices in self.label_groups.items():
+            active = [i for i in indices if i in uncertain_set]
+            if len(active) > len(best_indices):
+                best_cluster_key = label
+                best_field = 'label'
+                best_indices = active
+        
+        # Check artist clusters
+        for artist, indices in self.artist_groups.items():
+            active = [i for i in indices if i in uncertain_set]
+            if len(active) > len(best_indices):
+                best_cluster_key = artist
+                best_field = 'artist'
+                best_indices = active
+        
+        return best_cluster_key, best_field, best_indices
+
+
+def classify_catalog(catalog):
+    """
+    Main pipeline: classify records using ML + iterative active learning
+    
+    Args:
+        catalog: List of records from lp_catalog.json (without wants/haves)
+        api_client: API client with get_release(release_id) method
+    
+    Returns:
+        {
+            'ruled_in': [release_ids],      # Confident positives (wants > haves)
+            'ruled_out': [release_ids],     # Confident negatives (wants ≤ haves)
+            'verified': [release_ids],      # IDs queried via API
+            'metadata': {...}
+        }
+    """
+    
+    print("=" * 80)
+    print("DISCOGS ACTIVE LEARNING PIPELINE")
+    print("=" * 80)
+    
+    # =========================================================================
+    # STEP 1: Load and prepare training data
+    # =========================================================================
+    print("\n[1/6] Loading training data...")
+    with open('enriched_training.json', 'r') as f:
+        training = json.load(f)
+    
+    y_train = np.array([1 if r['wants'] > r['haves'] else 0 for r in training])
+    print(f"Training samples: {len(training)}")
+    print(f"Positive rate: {y_train.mean():.4f}")
+    
+    # =========================================================================
+    # STEP 2: Feature engineering
+    # =========================================================================
+    print("\n[2/6] Engineering features...")
+    feature_engineer = FeatureEngineer()
+    X_train_full = feature_engineer.fit_transform(training)
+    print(f"Feature matrix shape: {X_train_full.shape}")
+    
+    # =========================================================================
+    # STEP 3: Train and calibrate model
+    # =========================================================================
+    print("\n[3/6] Training and calibrating model...")
+    
+    # Split for threshold tuning
+    X_train, X_val, y_train_split, y_val = train_test_split(
+        X_train_full, y_train,
+        test_size=0.2,
+        stratify=y_train,
+        random_state=42
+    )
+    
+    # Train LightGBM with calibration
+    base_model = LGBMClassifier(
+        n_estimators=200,
+        max_depth=8,
+        learning_rate=0.05,
+        num_leaves=31,
+        min_child_samples=20,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=42,
+        verbose=-1
+    )
+    
+    # Calibrate for reliable probabilities
+    calibrated_model = CalibratedClassifierCV(
+        base_model,
+        method='isotonic',
+        cv=5
+    )
+    
+    print("Training model...")
+    calibrated_model.fit(X_train, y_train_split)
+    
+    # Validate calibration
+    val_probs = calibrated_model.predict_proba(X_val)[:, 1]
+    val_preds = (val_probs >= 0.5).astype(int)
+    val_acc = accuracy_score(y_val, val_preds)
+    print(f"Validation accuracy: {val_acc:.4f}")
+    
+    # =========================================================================
+    # STEP 4: Tune thresholds on validation set
+    # =========================================================================
+    print("\n[4/6] Tuning thresholds for 90% precision...")
+    pos_threshold, neg_threshold = ThresholdTuner.find_thresholds(
+        y_val, val_probs,
+        target_precision=0.90,
+        verbose=True
+    )
+    
+    # =========================================================================
+    # STEP 5: Score catalog with ML model
+    # =========================================================================
+    print("\n[5/6] Scoring catalog...")
+    X_catalog = feature_engineer.transform(catalog)
+    catalog_probs = calibrated_model.predict_proba(X_catalog)[:, 1]
+    
+    # Initial ML-based classification
+    ruled_in = set()
+    ruled_out = set()
+    classified = set()
+    
+    for idx, record in enumerate(catalog):
+        rid = str(record['release_id'])
+        if catalog_probs[idx] >= pos_threshold:
+            ruled_in.add(rid)
+            classified.add(idx)
+        elif catalog_probs[idx] < neg_threshold:
+            ruled_out.add(rid)
+            classified.add(idx)
+    
+    print(f"ML classifications: {len(classified):,} records ({len(classified)/len(catalog):.1%})")
+    print(f"  - Ruled in: {len(ruled_in):,}")
+    print(f"  - Ruled out: {len(ruled_out):,}")
+    print(f"  - Uncertain: {len(catalog) - len(classified):,}")
+    
+    # =========================================================================
+    # STEP 6: Iterative active learning with cluster propagation
+    # =========================================================================
+    print("\n[6/6] Active learning with cluster propagation...")
+    
+    cluster_manager = ClusterManager(catalog, training)
+    verified = []
+    api_calls = 0
+    max_api_calls = 1000
+    
+    print(f"Budget: {max_api_calls} API calls")
+    print("Starting iterative loop...\n")
+    
+    iteration = 0
+    while api_calls < max_api_calls:
+        # Find uncertain records
+        uncertain = [idx for idx in range(len(catalog)) if idx not in classified]
+        
+        if not uncertain:
+            print("All records classified!")
+            break
+        
+        # Find the best cluster to query
+        cluster_key, field, cluster_indices = cluster_manager.find_best_cluster_to_query(uncertain)
+        
+        if not cluster_indices:
+            break
+        
+        # Query the most uncertain record in this cluster (closest to 0.5)
+        query_idx = min(cluster_indices, key=lambda i: abs(catalog_probs[i] - 0.5))
+        record = catalog[query_idx]
+        rid = str(record['release_id'])
+        
+        # Make API call
+        try:
+            result = get_release_logged(record['release_id'])
+            api_calls += 1
+            verified.append(rid)
+            is_positive = result['wants'] > result['haves']
+            
+            # Update cluster statistics
+            cluster_manager.update_cluster_stats(field, cluster_key, is_positive)
+            
+            # Get updated cluster positive rate
+            cluster_pos_rate = cluster_manager.get_cluster_positive_rate(field, cluster_key)
+            
+            # Propagate to all uncertain members of this cluster
+            propagated = 0
+            for idx in cluster_indices:
+                if idx in classified:
+                    continue
+                
+                # Combine cluster signal with model probability
+                combined_score = 0.5 * cluster_pos_rate + 0.5 * catalog_probs[idx]
+                
+                record_id = str(catalog[idx]['release_id'])
+                if combined_score >= pos_threshold:
+                    ruled_in.add(record_id)
+                    classified.add(idx)
+                    propagated += 1
+                elif combined_score < neg_threshold:
+                    ruled_out.add(record_id)
+                    classified.add(idx)
+                    propagated += 1
+            
+            iteration += 1
+            if iteration % 50 == 0:
+                coverage = len(classified) / len(catalog)
+                print(f"Call {api_calls:4d}: {field}='{cluster_key[:40]}' → "
+                      f"{'POS' if is_positive else 'NEG'} | "
+                      f"Propagated: {propagated:3d} | "
+                      f"Coverage: {coverage:.1%}")
+        
+        except Exception as e:
+            print(f"API call failed: {e}")
+            break
+    
+    # =========================================================================
+    # Final results
+    # =========================================================================
+    final_coverage = len(classified) / len(catalog)
+    
+    print("\n" + "=" * 80)
+    print("PIPELINE COMPLETE")
+    print("=" * 80)
+    print(f"API calls made: {api_calls}")
+    print(f"Total classified: {len(classified):,} ({final_coverage:.1%})")
+    print(f"  - Ruled in: {len(ruled_in):,}")
+    print(f"  - Ruled out: {len(ruled_out):,}")
+    print(f"  - Uncertain: {len(catalog) - len(classified):,}")
+    
+    return {
+        'ruled_in': list(ruled_in),
+        'ruled_out': list(ruled_out),
+        'verified': verified,
+        'metadata': {
+            'api_calls_made': api_calls,
+            'coverage_ratio': final_coverage,
+            'approach': 'LightGBM + isotonic calibration + iterative label/artist cluster propagation',
+            'positive_threshold': float(pos_threshold),
+            'negative_threshold': float(neg_threshold),
+            'ml_coverage': len(classified) / len(catalog),
+            'ruled_in_count': len(ruled_in),
+            'ruled_out_count': len(ruled_out)
+        }
+    }
+
+
+if __name__ == '__main__':
+    # Test with mock API
+    print("Testing pipeline with mock API...")
+    
+    # Load catalog
+    with open('lp_catalog.json', 'r') as f:
+        catalog = json.load(f)
+    
+    # Create mock API client
+    class MockAPIClient:
+        def __init__(self):
+            with open('enriched_training.json', 'r') as f:
+                self.data = {str(r['release_id']): r for r in json.load(f)}
+            self.calls = 0
+        
+        def get_release(self, release_id):
+            self.calls += 1
+            if self.calls > 1000:
+                raise Exception("API budget exceeded")
+            
+            rid = str(release_id)
+            if rid in self.data:
+                return {
+                    'release_id': release_id,
+                    'wants': self.data[rid]['wants'],
+                    'haves': self.data[rid]['haves']
+                }
+            # Random for unknown records
+            return {
+                'release_id': release_id,
+                'wants': np.random.randint(0, 50),
+                'haves': np.random.randint(0, 100)
+            }
+    
+    api_client = MockAPIClient()
+    result = classify_catalog(catalog, api_client)
+    
+    print("\n" + json.dumps(result['metadata'], indent=2))

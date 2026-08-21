@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Link } from "react-router-dom";
-import type { LoginProps } from '../types/interfaces'
+import type { LoginProps } from '../types';
 import { apiFetch } from "../api/client";
 
 
@@ -59,9 +58,6 @@ export const Login = ({ onLogin }: LoginProps) => {
       <div className="buttons">
         <button className="login" onClick={handleSubmit}>LOGIN</button>
         <button className="signup">SIGN UP</button>
-        <Link to="/tour">
-          <button className="tour">TOUR</button>
-        </Link>
       </div>
     </>
   );

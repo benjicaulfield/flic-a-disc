@@ -1,0 +1,226 @@
+HINTS FOR DISCOGS RECORD CLASSIFICATION
+
+1. THRESHOLD TUNING
+
+Don't use the default 0.5 threshold. With a 90% precision requirement and class imbalance (22.82% positive), you need to find thresholds that maximize recall while maintaining precision. Use a validation set to grid search thresholds - try ranges like 0.3-0.8 for positives and 0.2-0.7 for negatives. You can also use separate thresholds for each class (asymmetric classification). Records between thresholds can remain unclassified if neither threshold is met.
+
+2. MODEL CALIBRATION
+
+Tree-based models (RandomForest, LightGBM, XGBoost) produce uncalibrated probabilities. Apply CalibratedClassifierCV with isotonic or sigmoid method before using probabilities for decisions. Without calibration, a model claiming 80% confidence might only be 60% accurate. Calibration ensures that among predictions with probability p, approximately p% are actually positive.
+
+3. FEATURE ENGINEERING FOR TEXT AND MULTI-LABEL DATA
+
+- Text fields (artist, title, label): Use TF-IDF with n-gram ranges (1,2) and min_df=2 to filter rare terms. Limit max_features (200-500) to control dimensionality.
+- Multi-label fields (genres, styles): Use MultiLabelBinarizer, not one-hot encoding.
+- Combine features with scipy.sparse.hstack to handle high dimensionality efficiently.
+- Standardize numeric features to comparable scales.
+
+TF-IDF on artist/label names captures semantic patterns that simple categorical encoding misses.
+
+4. SPARSE MATRICES FOR SCALABILITY
+
+With 395k records and high-dimensional TF-IDF features, use scipy.sparse matrices throughout. Don't convert to dense arrays - this causes memory exhaustion. Most sklearn estimators handle sparse input natively. Process predictions in batches if needed.
+
+5. FOCUS ON THE PRIMARY DRIVER
+
+ML model predictions will drive ~70% of coverage. Propagation strategies (master_id grouping) add ~3-5% supplemental coverage. Don't over-invest in clever propagation at the expense of building a strong baseline model. Start with solid features and calibration, then add propagation if time permits.
+
+6. VALIDATE PROPAGATION ASSUMPTIONS
+
+Records sharing master_id are correlated but not identical. Naive propagation (query 1, apply to all siblings) achieves ~82% accuracy - below the 90% precision requirement. If using master_id grouping, validate with majority voting (query 2-3 per group) or measure actual precision on held-out examples. Be cautious with master_id='0' - it's a sentinel for unrelated records, not a real group.
+
+7. STRATIFIED VALIDATION
+
+Use stratified train/test split to match the 22.82% positive rate in validation. This ensures threshold tuning on validation generalizes to test. Never tune on the test set. With matching distributions (no shift), validation metrics reliably predict test performance.
+
+8. ACTIVE LEARNING AND STRATEGIC API USAGE
+
+With only 1,000 API calls for 395k records, maximize information gain per query. After training on 30k labeled data and making initial predictions on the full catalog:
+- Query records near decision boundaries (probability near your thresholds) where the model is most uncertain
+- Use API results to validate model predictions in high-uncertainty regions
+- Consider querying representative samples from large master_id groups to validate propagation accuracy
+- Each API call can inform not just that record, but similar records or siblings in the same group
+
+This is different from random sampling - active learning focuses budget on informative examples that reduce model uncertainty most efficiently.
+
+Justification for All Hints                                                                                                                      
+                                         
+1. THRESHOLD TUNING                                                                                                                              
+                                                          
+Loss pattern: Models use default 0.5 threshold, achieving poor precision/recall balance. With 90% precision requirement and 22.82% positive rate,
+default threshold typically produces either high precision/low recall or low precision/high recall, failing to meet both constraints
+simultaneously.
+
+Capability: Threshold optimization for precision-constrained binary classification. Understanding that decision thresholds are hyperparameters to
+be tuned, not fixed at 0.5.
+
+Should expert figure this out? YES. The prompt specifies "90% precision requirement" and "70% recall requirement" - these are explicit
+constraints. Any data scientist knows that:
+- Default 0.5 threshold is arbitrary
+- With class imbalance (22.82% vs 77.18%), optimal thresholds are not 0.5
+- Precision/recall trade-offs require threshold tuning
+- Stratified metrics (separate precision for each class) suggest separate thresholds
+
+This derives directly from the requirements. No external information needed.
+
+---
+2. MODEL CALIBRATION
+
+Loss pattern: Models use raw tree-based model probabilities for threshold decisions. Uncalibrated probabilities lead to poorly chosen thresholds
+(e.g., setting threshold at 0.7 thinking it gives 70% precision, but actual precision is 55%).
+
+Capability: Probability calibration for reliable confidence scores. Understanding that model outputs ≠ true probabilities without calibration.
+
+Should expert figure this out? YES. This is fundamental ML knowledge:
+- Tree-based models (RandomForest, LightGBM, XGBoost) produce uncalibrated probabilities - this is well-documented
+- When thresholds are chosen based on probability values, calibration is necessary
+- The prompt requires threshold-based decisions to meet precision targets
+- Any ML practitioner working with probabilities for decision-making knows to calibrate
+
+This is standard practice, not external information. The prompt's precision requirements imply probability-based decisions, which require
+calibration.
+
+---
+3. FEATURE ENGINEERING FOR TEXT AND MULTI-LABEL DATA
+
+Loss pattern: Models treat high-cardinality text fields (artist names, labels) as simple categorical variables, either one-hot encoding (creating
+millions of sparse features) or ignoring them entirely. Multi-label fields (genres, styles) are incorrectly encoded.
+
+Capability: Appropriate feature representations for different data types. Understanding that text requires vectorization (TF-IDF), not
+categorical encoding, and multi-label fields need MultiLabelBinarizer.
+
+Should expert figure this out? YES. The prompt provides data schema:
+Fields: artist, title, label, catalog_number, year, country, genre (array), style (array)
+
+An expert immediately recognizes:
+- artist, title, label: Text fields with high cardinality → TF-IDF
+- genre (array), style (array): Multi-label fields → MultiLabelBinarizer
+- year, country: Numeric/categorical → standard scaling/encoding
+
+This is basic feature engineering knowledge. No external information - the data types are given in the prompt.
+
+---
+4. SPARSE MATRICES FOR SCALABILITY
+
+Loss pattern: Models convert high-dimensional TF-IDF features (e.g., 500 features × 395k records) to dense arrays, causing memory exhaustion
+(>8GB RAM) or extremely slow processing.
+
+Capability: Efficient data structures for high-dimensional sparse data. Understanding memory/computational trade-offs.
+
+Should expert figure this out? YES. The prompt states:
+- 395,508 records (large dataset)
+- Text features (artist, title, label) → TF-IDF produces sparse features
+- Must handle this efficiently
+
+Any data scientist knows:
+- TF-IDF output is sparse (most values are 0)
+- scipy.sparse matrices are standard for sparse data
+- sklearn works natively with sparse matrices
+- 395k × 500 dense array = ~1.5GB, vs ~50MB sparse
+
+This is fundamental scalability knowledge, not external information.
+
+---
+5. FOCUS ON THE PRIMARY DRIVER
+
+Loss pattern: Models spend 80% of development time on propagation heuristics (master_id grouping, LSH, etc.) that contribute 3-5% coverage, while
+spending 20% on the ML model that drives 70% coverage. Result: poor overall performance despite clever engineering.
+
+Capability: Prioritization and impact estimation. Understanding where to allocate effort for maximum return.
+
+Should expert figure this out? Partially. This requires analysis:
+- The prompt emphasizes "propagation strategies" and "active learning"
+- But the constraints are: 1,000 API calls for 395k records (0.25% budget)
+- To get 75% coverage with 0.25% API budget requires 300:1 propagation leverage
+- This is mathematically impossible with naive propagation alone
+- Therefore, ML must be the primary driver
+
+An expert would recognize: "With only 1,000 API calls and 75% coverage requirement, most coverage must come from ML predictions, not
+propagation." This is derivable from the math, but the hint makes it explicit.
+
+Justified? YES - but it's more subtle. An expert should figure this out by doing the math, but models often don't. This hint represents strategic
+thinking about resource allocation.
+
+---
+6. VALIDATE PROPAGATION ASSUMPTIONS
+
+Loss pattern: Models assume records with the same master_id have identical wants/haves values, propagating labels naively (query 1 record, apply
+to 20 siblings). This achieves ~82% precision, failing the 90% requirement.
+
+Capability: Empirical validation of assumptions. Understanding correlation ≠ causation/identity. Measuring actual performance before deploying
+strategies.
+
+Should expert figure this out? Partially. The prompt states:
+- Records have master_id field
+- "propagation strategies like sibling matching" is suggested
+
+An expert would think: "Master releases have multiple pressings - same music, different pressings. Pressings might have different wants/haves
+(first pressing more desirable). I should validate this assumption."
+
+Justified? YES. While the prompt mentions master_id, it doesn't state the relationship strength. An expert would:
+1. Test the correlation empirically
+2. Find it's not 100% (it's ~82% for naive propagation)
+3. Use validation-based approaches (majority voting)
+
+This is scientific method applied to ML - validate assumptions empirically.
+
+---
+7. STRATIFIED VALIDATION
+
+Loss pattern: Models use random train/test split, creating validation sets with different distributions than test (e.g., 25% positive in
+validation, 22.82% in test). Threshold tuning on validation doesn't generalize to test.
+
+Capability: Distribution-aware validation design. Understanding that validation must match test distribution to be predictive.
+
+Should expert figure this out? YES. The prompt provides:
+- Training data: 30,000 records at 22.82% positive
+- Test data: 395,508 records at 22.82% positive
+- "Training and test distributions match exactly (22.82% positive)"
+
+An expert knows:
+- Stratified splitting maintains class ratios
+- Validation should match test distribution
+- This is ML 101 - standard practice
+
+No external information. The distributions are given in the prompt.
+
+---
+8. ACTIVE LEARNING AND STRATEGIC API USAGE
+
+Loss pattern: Models query 1,000 random records or first 1,000 records, wasting budget on confident predictions. High-uncertainty predictions
+remain unvalidated.
+
+Capability: Active learning / uncertainty sampling. Efficient exploration under budget constraints.
+
+Should expert figure this out? YES. The prompt explicitly states:
+- "streaming/active learning approach is strongly encouraged"
+- "query uncertain records iteratively"
+- "use each result to update predictions"
+
+This literally tells agents to use active learning. An expert reading "active learning" knows:
+- Uncertainty sampling (query near decision boundaries)
+- Query-by-committee
+- Expected model change
+- Information gain maximization
+
+The hint clarifies how to implement the active learning the prompt requests. Standard textbook knowledge.
+
+---
+Summary
+
+All hints represent core data science capabilities that an expert would apply when reading the prompt:
+
+Directly derivable from prompt:
+- #1: Threshold tuning (precision/recall requirements stated)
+- #3: Feature engineering (data schema provided)
+- #4: Sparse matrices (large dataset + text features)
+- #7: Stratified validation (distributions provided)
+- #8: Active learning (explicitly mentioned in prompt)
+
+Require domain knowledge but logically derivable:
+- #2: Calibration (threshold-based decisions require it)
+- #5: Focus on ML (math shows propagation can't provide 75% coverage alone)
+- #6: Validate propagation (scientific method - test assumptions)
+
+None introduce external information. All represent expertise an applied data scientist would have and apply naturally when approaching this
+problem. These are "best practices" that separate expert practitioners from novices.

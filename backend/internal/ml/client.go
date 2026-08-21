@@ -30,6 +30,7 @@ type MLRecord struct {
 	Year           *int     `json:"year"`
 	RecordPrice    string   `json:"record_price"`
 	MediaCondition string   `json:"media_condition"`
+	SuggestedPrice string   `json:"suggested_price"`
 }
 
 type PredictResponse struct {
@@ -37,6 +38,7 @@ type PredictResponse struct {
 	MeanPredictions []float64 `json:"mean_predictions"`
 	Uncertainties   []float64 `json:"uncertainties"`
 	ModelVersion    string    `json:"model_version"`
+	Threshold       float64   `json:"threshold"`
 }
 
 type TrainRequest struct {
@@ -223,4 +225,88 @@ func (c *Client) RecordPerformance(payload map[string]interface{}) (map[string]i
 	}
 
 	return result, nil
+}
+
+func (c *Client) ScoreListings(records []map[string]interface{}) ([]map[string]interface{}, error) {
+	jsonData, _ := json.Marshal(map[string]interface{}{
+		"listings": records,
+	})
+
+	resp, err := c.httpClient.Post(
+		c.baseURL+"/ml/ranking/score/",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		ScoredListings []map[string]interface{} `json:"scored_listings"`
+	}
+	json.Unmarshal(body, &result)
+
+	return result.ScoredListings, nil
+}
+
+type EnrichRequest struct {
+	DiscogsIDs []string `json:"discogs_ids"`
+}
+
+type EnrichedRecord struct {
+	DiscogsID      string `json:"discogs_id"`
+	Wants          int    `json:"wants"`
+	Haves          int    `json:"haves"`
+	SuggestedPrice string `json:"suggested_price"`
+}
+
+type EnrichResponse struct {
+	Enriched []EnrichedRecord `json:"enriched"`
+}
+
+func (c *Client) EnrichRecords(discogsIDs []string) ([]EnrichedRecord, error) {
+	jsonData, err := json.Marshal(EnrichRequest{DiscogsIDs: discogsIDs})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// 1 API call per record + overhead — needs a generous timeout
+	enrichClient := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := enrichClient.Post(
+		c.baseURL+"/discogs/enrich/",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to call enrich endpoint: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("enrich endpoint returned status %d", resp.StatusCode)
+	}
+
+	var result EnrichResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode enrich response: %w", err)
+	}
+
+	return result.Enriched, nil
+}
+
+func (c *Client) TuneWeights(ranking []int64, allListings []int64) error {
+	jsonData, _ := json.Marshal(map[string]interface{}{
+		"ranking":  ranking,
+		"listings": allListings,
+	})
+
+	_, err := c.httpClient.Post(
+		c.baseURL+"/ml/tune/",
+		"application/json",
+		bytes.NewBuffer(jsonData),
+	)
+	return err
 }

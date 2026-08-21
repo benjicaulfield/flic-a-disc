@@ -1,0 +1,444 @@
+"""
+Active Learning Pipeline for Discogs Record Classification
+
+Classifies vinyl LP records as desirable (wants > haves) using:
+1. LightGBM ensemble trained on 30k labeled records
+2. Stratified API calibration to find optimal thresholds
+3. Strategic verification of uncertain positives  
+4. Multi-source propagation (master_id, album matching, training labels)
+"""
+
+import json
+import numpy as np
+import pandas as pd
+from collections import defaultdict
+import lightgbm as lgb
+import re
+import random
+import os
+
+import logging
+import os
+import sys
+
+# Logging setup
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('pipeline_12.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Django setup
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+ml_path = os.path.join(project_root, 'ml')
+if ml_path not in sys.path:
+    sys.path.insert(0, ml_path)
+
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+import django
+django.setup()
+
+from bandit.utils.get_user_inventory import authenticate_client
+from bandit.models import Record
+from django.utils import timezone
+
+# Initialize authenticated Discogs client
+logger.info("Initializing authenticated Discogs client...")
+api_client_global = authenticate_client()
+logger.info("Client authenticated successfully")
+
+# API call counter and helper
+api_call_counter = [0]  # Use list for mutable global
+
+def get_release_logged(release_id):
+    """Helper function to get release with logging and DB save."""
+    api_call_counter[0] += 1
+    logger.info(f"API call {api_call_counter[0]}: Querying release {release_id}")
+
+    result = api_client_global.get_release(release_id)
+
+    # Extract wants/haves from community stats
+    stats = (result.data.get('stats') or {}).get('community') or {}
+    wants = stats.get('in_wantlist', 0)
+    haves = stats.get('in_collection', 0)
+
+    logger.info(f"API call {api_call_counter[0]}: Release {release_id} - wants={wants}, haves={haves}")
+
+    # Create a dict-like result for backward compatibility
+    result_dict = {
+        'wants': wants,
+        'haves': haves,
+        'data': result.data,
+    }
+
+    # Save to database
+    try:
+        Record.objects.get_or_create(
+            discogs_id=str(release_id),
+            defaults={
+                'title': result.data.get('title', ''),
+                'artist': ', '.join(a.get('name', '') for a in result.data.get('artists', [])),
+                'year': result.data.get('year'),
+                'genres': result.data.get('genres', []),
+                'styles': result.data.get('styles', []),
+                'label': result.data.get('labels', [{}])[0].get('name', '') if result.data.get('labels') else '',
+                'country': result.data.get('country', ''),
+                'format': result.data.get('formats', [{}])[0].get('name', '') if result.data.get('formats') else '',
+                'master_id': result.data.get('master_id'),
+                'wants': wants,
+                'haves': haves,
+                'added': timezone.now(),
+            }
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save record {release_id} to database: {e}")
+
+    return result_dict
+
+
+
+GENRE_MAP = {
+    'Rock': 'Rock', 'Pop': 'Pop', 'Jazz': 'Jazz',
+    'Folk, World, & Country': 'FWC', 'Funk / Soul': 'FS',
+    'Electronic': 'Elec', 'Classical': 'Class', 'Latin': 'Latin',
+    'Stage & Screen': 'SS', 'Blues': 'Blues',
+    'Hip Hop': 'HH', 'Reggae': 'Reg', 'Non-Music': 'NM', "Children's": 'Child'
+}
+CAT_COLS = ['artist', 'rec_label', 'country', 'genre_combo',
+            'style_combo', 'artist_label']
+
+# Bayesian propagation constants (from training data analysis)
+P_SIB_POS_GIVEN_POS = 0.314
+P_SIB_POS_GIVEN_NEG = 0.103
+P_SIB_NEG_GIVEN_NEG = 0.897
+P_SIB_NEG_GIVEN_POS = 0.686
+
+
+def safe_str(v):
+    return str(v) if v is not None else '__none__'
+
+def sanitize(s):
+    return re.sub(r'[^a-zA-Z0-9_]', '_', s)
+
+def wilson_lower(successes, n, z=1.96):
+    if n == 0: return 0.0
+    p = successes / n
+    d = 1 + z*z/n
+    c = (p + z*z/(2*n)) / d
+    m = z * np.sqrt((p*(1-p) + z*z/(4*n)) / n) / d
+    return max(0, c - m)
+
+def bayesian_pos(p, pos_evidence=True):
+    """Posterior P(positive) given model prob p and sibling evidence."""
+    if pos_evidence:
+        return (P_SIB_POS_GIVEN_POS * p) / (P_SIB_POS_GIVEN_POS * p + P_SIB_POS_GIVEN_NEG * (1-p))
+    else:
+        return 1.0 - (P_SIB_NEG_GIVEN_NEG * (1-p)) / (P_SIB_NEG_GIVEN_NEG * (1-p) + P_SIB_NEG_GIVEN_POS * p)
+
+
+def records_to_df(records):
+    rows = []
+    for r in records:
+        row = {}
+        row['artist'] = r['artist']
+        row['rec_label'] = (safe_str(r.get('label', ''))
+                           if isinstance(r.get('label'), str) else '__int__')
+        row['country'] = safe_str(r.get('country', ''))
+        try:
+            row['year'] = int(r['year']) if r.get('year') else 0
+        except (ValueError, TypeError):
+            row['year'] = 0
+        row['year_missing'] = 1 if row['year'] == 0 else 0
+        row['country_empty'] = 1 if row['country'] in ('', '__none__', 'None') else 0
+        row['has_master'] = 1 if r.get('master_id') not in ('0', 0, None, '') else 0
+        row['n_genres'] = len(r.get('genre', []))
+        row['n_styles'] = len(r.get('style', []))
+        for orig_g, safe_g in GENRE_MAP.items():
+            row[f'g_{safe_g}'] = 1 if orig_g in r.get('genre', []) else 0
+        row['genre_bracket'] = 1 if any(str(g).startswith('[') for g in r.get('genre', [])) else 0
+        row['genre_combo'] = sanitize('_'.join(sorted(r.get('genre', []))))
+        row['style_combo'] = (sanitize('_'.join(sorted(r.get('style', []))))
+                             if r.get('style') else '__empty__')
+        row['artist_label'] = sanitize(f"{r['artist']}_{row['rec_label']}")
+        rows.append(row)
+    df = pd.DataFrame(rows)
+    for col in CAT_COLS:
+        df[col] = df[col].astype('category')
+    return df
+
+
+def train_models(training_records):
+    y = np.array([1 if r['wants'] > r['haves'] else 0 for r in training_records])
+    df = records_to_df(training_records)
+    models = []
+    for cfg in [
+        {'lr': 0.08, 'depth': 7, 'leaves': 50, 'seed': 42, 'rounds': 500},
+        {'lr': 0.05, 'depth': 8, 'leaves': 63, 'seed': 123, 'rounds': 600},
+        {'lr': 0.10, 'depth': 6, 'leaves': 40, 'seed': 456, 'rounds': 400},
+    ]:
+        td = lgb.Dataset(df, label=y, categorical_feature=CAT_COLS, free_raw_data=False)
+        params = {
+            'objective': 'binary', 'metric': 'binary_logloss',
+            'learning_rate': cfg['lr'], 'max_depth': cfg['depth'],
+            'num_leaves': cfg['leaves'], 'min_child_samples': 20,
+            'subsample': 0.8, 'colsample_bytree': 0.8,
+            'reg_alpha': 0.1, 'reg_lambda': 1.0, 'is_unbalance': True,
+            'verbose': -1, 'seed': cfg['seed'],
+            'cat_smooth': 15, 'min_data_per_group': 5, 'max_cat_threshold': 64,
+        }
+        bst = lgb.train(params, td, num_boost_round=cfg['rounds'])
+        models.append(bst)
+    return models
+
+
+def predict_ensemble(models, df):
+    probs = np.zeros(len(df))
+    for m in models:
+        probs += m.predict(df)
+    return probs / len(models)
+
+
+def classify_catalog(catalog):
+    """
+    Classify records from catalog using up to 1,000 API calls.
+
+    Returns dict with ruled_in, ruled_out, verified, metadata.
+    """
+    # --- Load training data ---
+    for path in [
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), 'enriched_training.json'),
+        'enriched_training.json',
+    ]:
+        if os.path.exists(path):
+            with open(path) as f:
+                training_data = json.load(f)
+            break
+
+    # --- Build training label lookups ---
+    master_labels = defaultdict(list)  # master_id -> [labels]
+    album_labels = defaultdict(list)   # (artist, title) -> [labels]
+    for r in training_data:
+        label = 1 if r['wants'] > r['haves'] else 0
+        mid = r['master_id']
+        if mid not in ('0', 0, None, ''):
+            master_labels[mid].append(label)
+        album_labels[(r['artist'], r['title'])].append(label)
+
+    # --- Train model ---
+    models = train_models(training_data)
+    df_cat = records_to_df(catalog)
+    probs = predict_ensemble(models, df_cat)
+
+    rng = random.Random(42)
+    verified = {}       # idx -> is_positive
+    verified_ids = {}   # rid -> is_positive
+    api_calls = 0
+
+    # =====================================================
+    # Phase 1: Calibration (500 calls)
+    # =====================================================
+    cal_budget = 500
+    cal_bins = [
+        (0.00, 0.10, 1), (0.10, 0.15, 1), (0.15, 0.20, 2),
+        (0.20, 0.25, 2), (0.25, 0.30, 1), (0.30, 0.35, 1),
+        (0.35, 0.40, 1), (0.40, 0.45, 1), (0.45, 0.50, 1),
+        (0.50, 0.55, 2), (0.55, 0.60, 3), (0.60, 0.65, 3),
+        (0.65, 0.70, 3), (0.70, 0.75, 3), (0.75, 0.80, 3),
+        (0.80, 0.85, 3), (0.85, 0.90, 2), (0.90, 0.95, 1),
+        (0.95, 1.00, 1),
+    ]
+    total_w = sum(w for _, _, w in cal_bins)
+    for lo, hi, w in cal_bins:
+        if api_calls >= cal_budget:
+            break
+        n_target = max(5, int(cal_budget * w / total_w))
+        cands = [i for i in range(len(probs)) if lo <= probs[i] < hi and i not in verified]
+        if not cands:
+            continue
+        for idx in rng.sample(cands, min(n_target, len(cands))):
+            if api_calls >= cal_budget:
+                break
+            rid = int(catalog[idx]['release_id'])
+            try:
+                result = get_release_logged(rid)
+                is_pos = result['wants'] > result['haves']
+                verified[idx] = is_pos
+                verified_ids[rid] = is_pos
+                api_calls += 1
+            except Exception:
+                break
+
+    # --- Find thresholds (conservative to aggressive) ---
+    high_t = 0.85
+    for t in np.arange(0.86, 0.44, -0.02):
+        above = [verified[i] for i in verified if probs[i] >= t]
+        n = len(above)
+        if n < 20:
+            continue
+        lb = wilson_lower(sum(above), n, z=1.96)
+        if lb >= 0.90:
+            high_t = t
+        else:
+            break
+
+    low_t = 0.20
+    for t in np.arange(0.18, 0.46, 0.02):
+        below = [verified[i] for i in verified if probs[i] <= t]
+        n = len(below)
+        if n < 20:
+            continue
+        lb = wilson_lower(sum(1 for v in below if not v), n, z=1.96)
+        if lb >= 0.90:
+            low_t = t
+        else:
+            break
+
+    # =====================================================
+    # Phase 2: Verification (remaining budget)
+    # =====================================================
+    remaining = 1000 - api_calls
+    
+    # Build master_id groups
+    master_groups = defaultdict(list)
+    for i in range(len(catalog)):
+        mid = catalog[i].get('master_id', '0')
+        if mid not in ('0', 0, None, ''):
+            master_groups[mid].append(i)
+
+    targets = []
+    for i in range(len(probs)):
+        if high_t - 0.20 <= probs[i] < high_t and i not in verified:
+            mid = catalog[i].get('master_id', '0')
+            bonus = 0
+            if mid in master_groups and len(master_groups[mid]) >= 2:
+                bonus = 0.01 * sum(1 for j in master_groups[mid] if low_t < probs[j] < high_t)
+            targets.append((i, probs[i] + bonus))
+    targets.sort(key=lambda x: -x[1])
+
+    for idx, _ in targets:
+        if api_calls >= 1000:
+            break
+        rid = int(catalog[idx]['release_id'])
+        try:
+            result = get_release_logged(rid)
+            is_pos = result['wants'] > result['haves']
+            verified[idx] = is_pos
+            verified_ids[rid] = is_pos
+            api_calls += 1
+        except Exception:
+            break
+
+    # =====================================================
+    # Classification
+    # =====================================================
+    ruled_in = set()
+    ruled_out = set()
+
+    # 1. Model-based classification
+    for i in range(len(catalog)):
+        rid = int(catalog[i]['release_id'])
+        if probs[i] >= high_t:
+            ruled_in.add(rid)
+        elif probs[i] <= low_t:
+            ruled_out.add(rid)
+
+    # 2. Verified records
+    for rid, is_pos in verified_ids.items():
+        if is_pos:
+            ruled_in.add(rid)
+        else:
+            ruled_out.add(rid)
+
+    # 3. Training label propagation (master_id + album matching)
+    for i in range(len(catalog)):
+        rid = int(catalog[i]['release_id'])
+        if rid in ruled_in or rid in ruled_out:
+            continue
+        p = probs[i]
+        
+        # Check master_id match with training
+        mid = catalog[i].get('master_id', '0')
+        if mid in master_labels:
+            train_labs = master_labels[mid]
+            if any(l == 1 for l in train_labs):
+                post = bayesian_pos(p, pos_evidence=True)
+                if post >= 0.90:
+                    ruled_in.add(rid)
+                    continue
+            if any(l == 0 for l in train_labs):
+                post_neg = 1.0 - bayesian_pos(p, pos_evidence=False)
+                if post_neg >= 0.90:
+                    ruled_out.add(rid)
+                    continue
+        
+        # Check album (artist, title) match with training
+        album_key = (catalog[i]['artist'], catalog[i].get('title', ''))
+        if album_key in album_labels:
+            train_labs = album_labels[album_key]
+            if any(l == 1 for l in train_labs):
+                post = bayesian_pos(p, pos_evidence=True)
+                if post >= 0.90:
+                    ruled_in.add(rid)
+                    continue
+            if any(l == 0 for l in train_labs):
+                post_neg = 1.0 - bayesian_pos(p, pos_evidence=False)
+                if post_neg >= 0.90:
+                    ruled_out.add(rid)
+                    continue
+
+    # 4. Master_id propagation from classified + verified records
+    for mid, indices in master_groups.items():
+        if len(indices) < 2:
+            continue
+        has_pos = any((i in verified and verified[i]) or probs[i] >= high_t for i in indices)
+        has_neg = any((i in verified and not verified[i]) or probs[i] <= low_t for i in indices)
+
+        for i in indices:
+            rid = int(catalog[i]['release_id'])
+            if rid in ruled_in or rid in ruled_out:
+                continue
+            p = probs[i]
+            if has_pos:
+                if bayesian_pos(p, True) >= 0.90:
+                    ruled_in.add(rid)
+            if has_neg and rid not in ruled_in:
+                if (1.0 - bayesian_pos(p, False)) >= 0.90:
+                    ruled_out.add(rid)
+
+    # Resolve overlaps
+    for rid in list(ruled_in & ruled_out):
+        if rid in verified_ids:
+            if verified_ids[rid]: ruled_out.discard(rid)
+            else: ruled_in.discard(rid)
+        else:
+            idx = next((i for i in range(len(catalog)) if int(catalog[i]['release_id']) == rid), None)
+            if idx is not None and probs[idx] < 0.5:
+                ruled_in.discard(rid)
+            else:
+                ruled_out.discard(rid)
+
+    coverage = (len(ruled_in) + len(ruled_out)) / len(catalog)
+
+    return {
+        'ruled_in': list(ruled_in),
+        'ruled_out': list(ruled_out),
+        'verified': list(verified_ids.keys()),
+        'metadata': {
+            'api_calls_made': api_calls,
+            'coverage_ratio': coverage,
+            'high_threshold': float(high_t),
+            'low_threshold': float(low_t),
+            'n_ruled_in': len(ruled_in),
+            'n_ruled_out': len(ruled_out),
+            'approach': (
+                'LightGBM ensemble (3 models) + stratified API calibration '
+                '(500 calls) + strategic verification (500 calls) + '
+                'multi-source Bayesian propagation (master_id + album matching '
+                '+ training label transfer)'
+            )
+        }
+    }

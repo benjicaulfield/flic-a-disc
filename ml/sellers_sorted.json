@@ -1,0 +1,1252 @@
+[
+  {
+    "free_shipping": [
+      {
+        "username": "JoeMusique",
+        "amount": 100,
+        "currency": "CAD",
+        "usd": 85.2,
+        "notes": "DONE"
+      },
+      {
+        "username": "metrorecord_ltd",
+        "amount": 100,
+        "currency": "USD",
+        "usd": 100.0,
+        "notes": "DONE"
+      },
+      {
+        "username": "rostarmusic",
+        "amount": 100,
+        "currency": "USD",
+        "usd": 100.0,
+        "notes": "needs more"
+      },
+      {
+        "username": "thedeadwaxsociety",
+        "amount": 100,
+        "currency": "GBP",
+        "usd": 115.0,
+        "notes": "DONE"
+      },
+      {
+        "username": "zorgal",
+        "amount": 130,
+        "currency": "USD",
+        "usd": 130.0,
+        "notes": "YES but on hold"
+      },
+      {
+        "username": "Cyclist_Music",
+        "amount": 200,
+        "currency": "CAD",
+        "usd": 146.0,
+        "notes": "some in cart, needs a little more"
+      },
+      {
+        "username": "deadstockrecords",
+        "amount": 150,
+        "currency": "USD",
+        "usd": 150.0,
+        "notes": "DONE"
+      },
+      {
+        "username": "djgurygury",
+        "amount": 150,
+        "currency": "USD",
+        "usd": 150.0,
+        "notes": "i keep on trying but cant get there"
+      },
+      {
+        "username": "Audiopile_",
+        "amount": 185,
+        "currency": "USD",
+        "usd": 185.0,
+        "notes": "YES"
+      },
+      {
+        "username": "DisKebec",
+        "amount": 200,
+        "currency": "USD",
+        "usd": 200.0,
+        "notes": "YES"
+      },
+      {
+        "username": "galapagos-japan",
+        "amount": 35000,
+        "currency": "JPY",
+        "usd": 218.0,
+        "notes": "yah maybe"
+      },
+      {
+        "username": "Campo007",
+        "amount": 420,
+        "currency": "AUS",
+        "usd": 268.8,
+        "notes": "YES"
+      },
+      {
+        "username": "cd-paradise",
+        "amount": 250,
+        "currency": "EUR",
+        "usd": 287.5,
+        "notes": "YES"
+      },
+      {
+        "username": "technikrad",
+        "amount": 250,
+        "currency": "EUR",
+        "usd": 287.5
+      },
+      {
+        "username": "FrequencesDisquaire",
+        "amount": 400,
+        "currency": "CAD",
+        "usd": 292.0,
+        "notes": "come back to this one"
+      },
+      {
+        "username": "One_g",
+        "amount": 50000,
+        "currency": "JPY",
+        "usd": 300.0
+      },
+      {
+        "username": "ProgMuse",
+        "amount": 300,
+        "currency": "USD",
+        "usd": 300.0
+      },
+      {
+        "username": "bestellung",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "billyshears_records",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Bnjawood",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "carlosmdp",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "carpediem66",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "CasaDelVinileCairoSV",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "davy56t",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Gerda123",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "groovierecords",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "hearmetalkintoya",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "HELLOBING",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "krissystrut",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "marhang",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "musicoz",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "MusicThatShapes",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Pantero_Records",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "PIANETACOLLEZIONISTA",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "PlexusRecords",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "quetzalviti",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Rare_vinyls_",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "thevinylroom.dk",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Vinyl.street",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "VinylManiatica",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "WaxwellRecords",
+        "amount": 300,
+        "currency": "EUR",
+        "usd": 345.0
+      },
+      {
+        "username": "Donsounds",
+        "amount": 350,
+        "currency": "USD",
+        "usd": 350.0
+      },
+      {
+        "username": "fathap1957",
+        "amount": 350,
+        "currency": "USD",
+        "usd": 350.0
+      },
+      {
+        "username": "Rechoard",
+        "amount": 500,
+        "currency": "AUS",
+        "usd": 350.45
+      },
+      {
+        "username": "NoEqual77",
+        "amount": 500,
+        "currency": "CAD",
+        "usd": 365.0
+      },
+      {
+        "username": "Anderson_Lion",
+        "amount": 2000,
+        "currency": "BRL",
+        "usd": 380.0
+      },
+      {
+        "username": "arenbr",
+        "amount": 2000,
+        "currency": "BRL",
+        "usd": 380.0
+      },
+      {
+        "username": "Arthur.Caruaru",
+        "amount": 2000,
+        "currency": "BRL",
+        "usd": 380.0
+      },
+      {
+        "username": "djbrahms",
+        "amount": 400,
+        "currency": "USD",
+        "usd": 400.0
+      },
+      {
+        "username": "vinyldeliveryservice",
+        "amount": 400,
+        "currency": "USD",
+        "usd": 400.0
+      },
+      {
+        "username": "endlesssearch",
+        "amount": 299,
+        "currency": "GBP",
+        "usd": 401.0
+      },
+      {
+        "username": "Abandon23",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "benmacrob",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "cableman",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "Frenchjazznut",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "Godzilla23",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "vdsrecords",
+        "amount": 300,
+        "currency": "GBP",
+        "usd": 402.0
+      },
+      {
+        "username": "AkamSector",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "antoine1964",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "Arthurski",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "enjoyvinyl",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "forer",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "helina9395",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "jose.lemur",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "mejopama",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "simogap",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "takesuback.ltd",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "yaggy45",
+        "amount": 350,
+        "currency": "EUR",
+        "usd": 402.5
+      },
+      {
+        "username": "vinyl8811",
+        "amount": 600,
+        "currency": "CAD",
+        "usd": 428.0
+      },
+      {
+        "username": "bruktognytt",
+        "amount": 399,
+        "currency": "EUR",
+        "usd": 458.85
+      },
+      {
+        "username": "Lordwaxx",
+        "amount": 399,
+        "currency": "EUR",
+        "usd": 458.85
+      },
+      {
+        "username": "alboostan",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "basementgr",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "Black_Widow_Records",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "brummitor",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "camel_records",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "GANG_OF_6",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "gedrake7",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "ivanave",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "Retro-Titan",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "PonyRec",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "Rainking-Recordstore",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "Retro-Titan",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "Sacambu",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "strange-exotica",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "surbeko",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+      {
+        "username": "vinyles61",
+        "amount": 400,
+        "currency": "EUR",
+        "usd": 460.0
+      },
+
+      {
+        "username": "a_friendly_face",
+        "amount": 350,
+        "currency": "GBP",
+        "usd": 469.0
+      },
+      {
+        "username": "Elephant.Records",
+        "amount": 350,
+        "currency": "GBP",
+        "usd": 469.0
+      },
+      {
+        "username": "groovebunnyrecords",
+        "amount": 500,
+        "currency": "USD",
+        "usd": 500.0
+      },
+      {
+        "username": "nevesrecords",
+        "amount": 500,
+        "currency": "USD",
+        "usd": 500.0
+      },
+      {
+        "username": "ritmolandia.record",
+        "amount": 500,
+        "currency": "USD",
+        "usd": 500.0
+      },
+      {
+        "username": "sbsouza07",
+        "amount": 500,
+        "currency": "USD",
+        "usd": 500.0
+      },
+      {
+        "username": "daspro",
+        "amount": 700,
+        "currency": "CAD",
+        "usd": 511.0
+      },
+      {
+        "username": "balades_sonores",
+        "amount": 450,
+        "currency": "EUR",
+        "usd": 517.5
+      },
+      {
+        "username": "donmaster",
+        "amount": 450,
+        "currency": "EUR",
+        "usd": 517.5
+      },
+      {
+        "username": "SemplicementeDischi",
+        "amount": 450,
+        "currency": "EUR",
+        "usd": 517.5
+      },
+      {
+        "username": "sonic-records-france",
+        "amount": 450,
+        "currency": "EUR",
+        "usd": 517.5
+      },
+      {
+        "username": "QuietVillage65",
+        "amount": 400,
+        "currency": "GBP",
+        "usd": 536.0
+      },
+      {
+        "username": "snowybartley",
+        "amount": 425,
+        "currency": "GBP",
+        "usd": 564.0
+      },
+      {
+        "username": "LetraVivaDiscos",
+        "amount": 3000,
+        "currency": "BRL",
+        "usd": 570.0
+      },
+      {
+        "username": ".c0sm0s.",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "-WAX4DAYS-",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "4colli",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "98765432123456789",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Amplitude_Records",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "andrea94.biagioni",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Angolo_della_Musica",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "AP-M",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Asmarani",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "astraldream",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "BuckdeBruxelles",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "buy24hours",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "darushima",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "DENNIK.RECORDS",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Digging_For_Fire_Rec",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "funkyquariat",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "JazzyMorty",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Kurtface",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "LefterRecords-Berlin",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "marcello.pedone",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "mazegogroove",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "moby-disques",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "moko.baba",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "NB.thelonious",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "nikden.records",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "NorthernSound",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Pangeia_br",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Tapir-Records",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "UNITEDMULTIMEDIA",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "VINIL_ROOM",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Vinylaudiodesign",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "WAX4DAYS",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Zbs-vinyles",
+        "amount": 500,
+        "currency": "EUR",
+        "usd": 575.0
+      },
+      {
+        "username": "Keep_it_on_wax",
+        "amount": 550,
+        "currency": "EUR",
+        "usd": 618.0
+      },
+      {
+        "username": "the-another-spot",
+        "amount": 550,
+        "currency": "EUR",
+        "usd": 618.0
+      },
+      {
+        "username": "classicrock64",
+        "amount": 600,
+        "currency": "USD",
+        "usd": 600.0
+      },
+      {
+        "username": "lpcollect",
+        "amount": 4000,
+        "currency": "DKK",
+        "usd": 600.0
+      },
+      {
+        "username": "boblilley1",
+        "amount": 450,
+        "currency": "GBP",
+        "usd": 603.0
+      },
+      {
+        "username": "carbock",
+        "amount": 650,
+        "currency": "USD",
+        "usd": 650.0
+      },
+      {
+        "username": "chriskevanham",
+        "amount": 575,
+        "currency": "EUR",
+        "usd": 661.25
+      },
+      {
+        "username": "vandovinil.ssa",
+        "amount": 3500,
+        "currency": "BRL",
+        "usd": 665
+      },
+      {
+        "username": "Bustersrecords.uk",
+        "amount": 500,
+        "currency": "GBP",
+        "usd": 670.0
+      },
+      {
+        "username": "CrateDigger_Barnsley",
+        "amount": 500,
+        "currency": "GBP",
+        "usd": 670.0
+      },
+      {
+        "username": "Gerrycan2",
+        "amount": 500,
+        "currency": "GBP",
+        "usd": 670.0
+      },
+      {
+        "username": "kevpw",
+        "amount": 500,
+        "currency": "GBP",
+        "usd": 670.0
+      },
+      {
+        "username": "Trossachs-Vinyl",
+        "amount": 500,
+        "currency": "GBP",
+        "usd": 670.0
+      },
+      {
+        "username": "Avataras",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "BaxtersCollection",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "Blasphemer_1983",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "brazagroovesch",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "City_Music_Odense",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "Classicalgrail",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "denizerei",
+        "amount": 600,
+        "currency": "EUR",
+        "usd": 690.0
+      },
+      {
+        "username": "One-Music-EU",
+        "amount": 700,
+        "currency": "USD",
+        "usd": 700.0
+      },
+      {
+        "username": "Acusticacds",
+        "amount": 4000,
+        "currency": "BRL",
+        "usd": 760.0
+      },
+      {
+        "username": "Lconn12",
+        "amount": 600,
+        "currency": "GBP",
+        "usd": 804.0,
+        "notes": "YES"
+      },
+      {
+        "username": "frankonian",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "Juppe",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "Knostiker",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "liberus",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "mango_lazy",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "MunichSchall",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "TonySarnano",
+        "amount": 700,
+        "currency": "EUR",
+        "usd": 805.0
+      },
+      {
+        "username": "alfsen",
+        "amount": 750,
+        "currency": "EUR",
+        "usd": 862.5
+      },
+      {
+        "username": "popcorn",
+        "amount": 750,
+        "currency": "EUR",
+        "usd": 862.5
+      },
+      {
+        "username": "nothing_ventured",
+        "amount": 650,
+        "currency": "GBP",
+        "usd": 871.0
+      },
+      {
+        "username": "Origami_Records",
+        "amount": 900,
+        "currency": "USD",
+        "usd": 900.0
+      },
+      {
+        "username": "recordorium",
+        "amount": 799,
+        "currency": "EUR",
+        "usd": 918.85
+      },
+      {
+        "username": "anubliss",
+        "amount": 800,
+        "currency": "EUR",
+        "usd": 920.0
+      },
+      {
+        "username": "Shogun_Records",
+        "amount": 800,
+        "currency": "EUR",
+        "usd": 920.0
+      },
+      {
+        "username": "vinyl_buyer",
+        "amount": 800,
+        "currency": "EUR",
+        "usd": 920.0
+      },
+      {
+        "username": "arturcav2",
+        "amount": 5000,
+        "currency": "BRL",
+        "usd": 950.0
+      },
+      {
+        "username": "danielneivabacha",
+        "amount": 5000,
+        "currency": "BRL",
+        "usd": 950.0
+      },
+      {
+        "username": "italodidi",
+        "amount": 850,
+        "currency": "EUR",
+        "usd": 977.5
+      },
+      {
+        "username": "afonsocerrone",
+        "amount": 1000,
+        "currency": "USD",
+        "usd": 1000.0
+      },
+      {
+        "username": "CTLWD_Records",
+        "amount": 1000,
+        "currency": "USD",
+        "usd": 1000.0
+      },
+      {
+        "username": "kjh0329",
+        "amount": 1000,
+        "currency": "USD",
+        "usd": 1000.0
+      },
+      {
+        "username": "MoRareVinyl",
+        "amount": 1000,
+        "currency": "USD",
+        "usd": 1000.0
+      },
+      {
+        "username": "PAYME_Archives_Tokyo",
+        "amount": 1000,
+        "currency": "USD",
+        "usd": 1000.0
+      },
+      {
+        "username": "Afroexotica",
+        "amount": 900,
+        "currency": "EUR",
+        "usd": 1035.0
+      },
+      {
+        "username": "Babylon_Music",
+        "amount": 999,
+        "currency": "CHF",
+        "usd": 1118.88
+      },
+      {
+        "username": "moominmammaa",
+        "amount": 999,
+        "currency": "EUR",
+        "usd": 1148.85
+      },
+      {
+        "username": "79tours-vinylshop",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "bluandblack",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "figure2a",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "Holywax-Records",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "Ingelchen",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "InterRecords",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "jazzwithballs",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "jimi.gazzosa",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "jpnvinyls",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "js.jazzfunksoul",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "MikeRenoir",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "RockRoom",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "rotesikeasofa",
+        "amount": 1000,
+        "currency": "EUR",
+        "usd": 1150.0
+      },
+      {
+        "username": "Astonishing-Sounds",
+        "amount": 1000,
+        "currency": "GBP",
+        "usd": 1340.0
+      },
+      {
+        "username": "alpineberlinette",
+        "amount": 1200,
+        "currency": "EUR",
+        "usd": 1380.0
+      },
+      {
+        "username": "KagoshimaRecords",
+        "amount": 1200,
+        "currency": "EUR",
+        "usd": 1380.0
+      },
+      {
+        "username": "LAGOHH",
+        "amount": 1250,
+        "currency": "EUR",
+        "usd": 1437.5
+      },
+      {
+        "username": "davidoffa",
+        "amount": 1500,
+        "currency": "EUR",
+        "usd": 1725.0
+      },
+      {
+        "username": "forsoundforfeel",
+        "amount": 1999.99,
+        "currency": "USD",
+        "usd": 1999.99
+      },
+      {
+        "username": "neiemeier",
+        "amount": 2000,
+        "currency": "USD",
+        "usd": 2000.0
+      },
+      {
+        "username": "aholi",
+        "amount": 2000,
+        "currency": "EUR",
+        "usd": 2300.0
+      },
+      {
+        "username": "diebrotfrau.de",
+        "amount": 3000,
+        "currency": "EUR",
+        "usd": 3450.0
+      }
+    ]
+  }
+]
