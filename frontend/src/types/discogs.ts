@@ -39,6 +39,12 @@ export interface DiscogsListing {
   format: string[];
   score?: number;
   price?: number;
+  wanted?: boolean;
+  wantlist?: boolean;
+  evaluated?: boolean;
+  wantlist_evaluated?: boolean;
+  probability?: number;
+  uncertainty?: number;
 }
 
 export interface DiscogsSeller {

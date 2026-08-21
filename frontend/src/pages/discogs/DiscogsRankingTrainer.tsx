@@ -73,7 +73,6 @@ const DiscogsRankingTrainer = () => {
       
       await loadBatch();
     } catch (err) {
-      console.error('Failed to submit ranking:', err);
     } finally {
       setSubmitting(false);
     }

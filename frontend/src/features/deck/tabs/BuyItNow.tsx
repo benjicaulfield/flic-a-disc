@@ -1,186 +1,23 @@
-import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Paginate } from '../../../hooks/Paginate';
-import { useEbayListings } from '../../../hooks/useEbayListings';
-import type { EbayScoredListing } from "../../../types/ebay";
+import type { ColumnDef } from '@tanstack/react-table';
+import type { EbayListing } from '../../../types/ebay';
+import { money } from '../utils';
+import { EbayTab, baseEbayColumns } from '../../../components/EbayTab';
 
-export const BuyItNow = () => {
-  const {
-    listings,
-    loading,
-    submitting,
-    refreshing,
-    error,
-    keeperIds,
-    completedPages,
-    getCachedListings,
-    refreshListings,
-    toggleLabel,
-    submitAnnotations
-  } = useEbayListings<EbayScoredListing>('/api/ebay/buyitnows', '/api/ebay/refresh_buyitnows');
+const columns: ColumnDef<EbayListing>[] = [
+  ...baseEbayColumns,
+  { accessorKey: 'price', header: 'Price', size: 90,
+    cell: ({ getValue }) => money(getValue<string>()) },
+];
 
-  const {
-      currentItems: currentPageListings,
-      currentPage,
-      totalPages,
-      nextPage,
-      previousPage,
-      hasNextPage,
-      hasPreviousPage
-    } = Paginate<EbayScoredListing>(listings, 40);
-
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    getCachedListings();
-  }, []);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <div className="text-lg text-gray-600">Loading...</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="bg-white rounded-lg shadow-md p-8 text-center max-w-md">
-          <div className="text-red-600 text-xl font-semibold mb-2">Error</div>
-          <div className="text-gray-700">{error}</div>
-        </div>
-      </div>
-    );
-  }
-
+export function BuyItNow({ isActive }: { isActive: boolean }) {
   return (
-    <div className="min-h-screen bg-slate-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        
-        {/* Header */}
-        <div className="bg-white rounded-lg shadow-sm border border-slate-200 p-6 mb-6">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4">
-            <div>
-              <h1 className="text-3xl font-bold text-slate-700">BUY IT NOW NOW NOW</h1>
-              <div className="mt-2 text-sm text-slate-500">
-                {completedPages} pages completed • {listings.length} similar records found
-              </div>
-            </div>
-            <button
-              onClick={refreshListings}
-              disabled={refreshing}
-              className="mt-4 sm:mt-0 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 text-sm"
-            >
-              {refreshing ? 'Refreshing...' : '🔄 Refresh'}
-            </button>
-          </div>
-
-          {/* Pagination */}
-          <div className="flex items-center justify-between">
-            <button 
-              onClick={previousPage} 
-              disabled={!hasPreviousPage}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              ← Previous
-            </button>
-            
-            <span className="text-sm text-gray-700">
-              Page <span className="font-medium">{currentPage + 1}</span> of <span className="font-medium">{totalPages}</span>
-            </span>
-            
-            <button 
-              onClick={nextPage} 
-              disabled={!hasNextPage}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Next →
-            </button>
-          </div>
-        </div>
-
-        {/* Table */}
-        <div className="bg-white rounded-lg shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs border-collapse">
-              <thead className="bg-slate-100 border-b border-slate-200">    
-                <tr>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-700 border-r border-gray-200">Title</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Price</th>
-                  <th className="px-2 py-2 text-left font-semibold text-gray-700 w-16 border-r border-gray-200">Score</th>
-                  <th className="px-2 py-2 text-center font-semibold text-gray-700 w-20 border-r border-gray-200">Keep</th>
-                </tr>
-              </thead>
-              <tbody>
-                {currentPageListings.map((auction, index) => {
-                  if (!auction) return null;
-
-                  const isKept = keeperIds.has(auction.ebay_id);
-
-                  return (
-                    <tr
-                      key={auction.ebay_id}
-                      className={`border-b border-gray-200 hover:bg-gray-50 ${
-                        isKept ? 'bg-blue-50' : ''
-                      }`}
-                    >
-                      <td className="px-2 py-2 text-gray-700" title={auction.ebay_title}>
-                        {auction.ebay_title || '—'}
-                      </td>
-
-                      <td className="px-2 py-1.5 border-r border-gray-200">
-                        ${auction.price || '0.00'}
-                      </td>
-
-                      <td className="px-2 py-1.5 border-r border-gray-200">
-                        {auction.tfidf_score != null ? auction.tfidf_score.toFixed(3) : '—'}
-                      </td>
-
-                      <td className="px-2 py-1.5 text-center border-r border-gray-200">
-                        <button
-                          onClick={(event) => toggleLabel(auction.id, index, event, currentPageListings)}
-                          className={`px-2 py-0.5 text-xs rounded border ${
-                            isKept
-                              ? 'bg-gray-400 text-white border-gray-400'
-                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-100'
-                          }`}
-                        >
-                          {isKept ? '✓' : 'Keep'}
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-
-            </table>
-          </div>
-        </div>
-
-        <div className="mt-6 flex justify-end gap-4">
-          <button
-            onClick={() => navigate('/')}
-            className="px-6 py-3 bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
-          >
-            Cancel
-          </button>
-          
-          <button
-            onClick={() => {
-              submitAnnotations(currentPageListings, nextPage);
-            }}
-            disabled={submitting}
-            className="px-8 py-3 bg-blue-600 text-white rounded disabled:bg-gray-400 hover:bg-blue-700 font-medium"
-          >
-            {submitting ? 'Submitting...' : `Submit Page (${keeperIds.size} keepers)`}
-          </button>
-        </div>
-      </div>  
-    </div> 
+    <EbayTab
+      isActive={isActive}
+      endpoint="api/ebay/buyitnows"
+      refreshEndpoint="api/ebay/refresh_buyitnows"
+      columns={columns}
+      title="BUY IT NOW"
+      storageKey="ebay_bin_results"
+    />
   );
-};
-
+}

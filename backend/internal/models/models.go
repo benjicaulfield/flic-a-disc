@@ -96,18 +96,23 @@ type DiscogsListing struct {
 }
 
 type EbayListing struct {
-	ID             uint   `gorm:"primaryKey"`
-	EbayID         string `gorm:"uniqueIndex;not null"`
-	EbayTitle      string
-	Price          string
-	Artist         string
-	Title          string
-	Label          string
-	Format         StringSlice `gorm:"type:jsonb;default:'[]'"`
-	Year           string
-	MediaCondition string
-	Genre          string
-	Style          string
+	ID             uint        `gorm:"primaryKey" json:"id"`
+	EbayID         string      `gorm:"uniqueIndex:idx_ebay_id_source;not null" json:"ebay_id"`
+	EbayTitle      string      `json:"ebay_title"`
+	Price          string      `json:"price"`
+	Artist         string      `json:"artist"`
+	Title          string      `json:"title"`
+	Label          string      `json:"label"`
+	Format         StringSlice `gorm:"type:jsonb;default:'[]'" json:"format"`
+	Year           string      `json:"year"`
+	MediaCondition string      `json:"media_condition"`
+	Genre          string      `json:"genre"`
+	Style          string      `json:"style"`
+	Source         string      `gorm:"uniqueIndex:idx_ebay_id_source" json:"source"`
+	KeeperScore    float64     `json:"keeper_score"`
+	ScrapedAt      time.Time   `json:"scraped_at"`
+	Wanted         *bool       `json:"wanted"`
+	Evaluated      bool        `json:"evaluated"`
 }
 
 type KnapsackItem struct {

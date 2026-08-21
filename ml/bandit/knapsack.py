@@ -7,7 +7,7 @@ from ortools.algorithms.python import knapsack_solver
 from .models import KnapsackWeights, DiscogsListing, DiscogsSeller, DiscogsRecord
 from .utils.get_user_inventory import get_inventory
 from .utils.get_exchange_rates import get_exchange_rates, convert_to_usd
-from .training import BanditTrainer
+from .training import trainer
 
 RATES = get_exchange_rates()
 
@@ -44,17 +44,11 @@ def save_listings(inventory):
 
 
 def score_and_filter_seller_listings(inventory):
-    weights = KnapsackWeights.objects.first()
-
-    if weights is None:
-        class DefaultWeights:
-            embedding = 0.6  # demand weight
-            price_diff = 0.4
-        weights = DefaultWeights()
 
     ALLOWED_CONDITIONS = [
         'Near Mint (NM or M-)',
-        'Very Good Plus (VG+)'
+        'Very Good Plus (VG+)',
+        'Very Good (VG)'
     ]
 
     inventory = [
@@ -65,19 +59,41 @@ def score_and_filter_seller_listings(inventory):
     if not inventory:
         return []
 
+    return weighted_score(inventory)
+
+def weighted_score(inventory):
+    weights = KnapsackWeights.objects.first()
+    if weights is None:
+        class DefaultWeights:
+            demand = 0.34
+            price_diff = 0.33
+            embedding = 0.33
+        weights = DefaultWeights()
+
     max_demand = demand_normalizer(inventory)
     max_price_diff = price_diff_normalizer(inventory)
 
+    model_ready = trainer.model is not None or trainer.load_latest_model()
+    if model_ready:
+        probs, variances = get_embeddings(inventory, trainer)
+    else:
+        probs, variances = [0] * len(inventory), [None] * len(inventory)
+
     rates = get_exchange_rates()
-    for listing in inventory:
+    for listing, prob, var, in zip(inventory, probs, variances):
         d = demands(listing) / max_demand
         p = price_diffs(listing) / max_price_diff
-        listing['score'] = weights.embedding * d + weights.price_diff * p
-        price, currency = listing['record_price'].split(', ')
+        e = float(prob)
+        listing['score'] = weights.demand * d + weights.price_diff * p + weights.embedding * e
+        listing['probability'] = e
+        listing['uncertainty'] = float(var) if var is not None else None
+        price, currency = parse_record_price(listing['record_price'])
         listing['price'] = convert_to_usd(float(price), currency, rates)
         listing['currency'] = 'USD'
 
     return inventory
+
+    
 
 def knapsack(inventory, budget):
     solver = knapsack_solver.KnapsackSolver(
@@ -136,11 +152,11 @@ def demand_normalizer(inventory):
     return max_demand if max_demand > 0 else 1
 
 def price_diffs(listing):
-    price, currency = listing['record_price'].split(', ')
+    price, currency = parse_record_price(listing['record_price'])
     dollar_price = convert_to_usd(price, currency, RATES)
     # Use listing price as default if no suggested_price (no false signal)
     sugg_price = listing.get('suggested_price')
-    if sugg_price is None or sugg_price == 0:
+    if not sugg_price:
         sugg_price = dollar_price
     return max(0, (float(sugg_price) - dollar_price))
 
@@ -152,17 +168,21 @@ def price_diff_normalizer(inventory):
 def get_embeddings(inventory, trainer):
     features = trainer.feature_extractor.extract_batch_features(inventory)
     features_tensor = torch.FloatTensor(features)
-    probs, _ = trainer.model.predict_with_uncertainty(features_tensor)
+    probs, variances = trainer.model.predict_with_uncertainty(features_tensor)
     embeddings = probs.cpu().numpy()
+    uncertainties = variances.cpu().numpy()
 
     # Ensure at least 1-dimensional (handles single-item case)
     if embeddings.ndim == 0:
         embeddings = np.array([embeddings])
+        uncertainties = np.array([uncertainties])
 
-    return embeddings
+    return embeddings, uncertainties
 
-
-
+def parse_record_price(record_price):
+    price_str, *rest = record_price.replace(', ', ' ').split()
+    currency = rest[0] if rest else 'USD'
+    return float(price_str), currency
 
 
 

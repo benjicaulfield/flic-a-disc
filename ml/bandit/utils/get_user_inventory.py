@@ -127,8 +127,8 @@ def get_inventory(username, filter_by_demand=True, save_as_we_go=True):
 
     total_pages = inventory.pages if hasattr(inventory, 'pages') else 100
 
-    # Cap at 100 pages max
-    total_pages = min(total_pages, 80)
+    # Cap at 80 pages max
+    total_pages = min(total_pages, 100)
     print(f"Total pages: {total_pages}")
 
     # Fetch pages in REVERSE order (newest first)

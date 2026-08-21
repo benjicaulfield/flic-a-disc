@@ -22,9 +22,7 @@ const DiscogsKnapsack = () => {
         body: JSON.stringify({ saved_for_comparison: true })
       });
       setSavedForComparison(true);
-    } catch (err) {
-      console.error('Failed to save for comparison:', err);
-    }
+    } catch (err) {}
   };
 
   const handleFormSubmit = async (e: FormEvent) => {

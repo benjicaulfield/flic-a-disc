@@ -7,8 +7,6 @@ import DiscogsKnapsackComparison from './pages/discogs/DiscogsKnapsackComparison
 import DiscogsCatalogTraining from './pages/discogs/DiscogsCatalogTraining';
 import Deck from './features/deck/Deck';
 import TourView from './pages/tour/TourView';
-import EbayBuyItNow from './pages/ebay/EbayBuyItNow';
-import EbayKeepers from './pages/ebay/EbayKeepers';
 import LandingPage from './pages/landing/LandingPage';
 import UserDashboard from './pages/UserDashboard';
 import type { User } from "./types";
@@ -67,17 +65,11 @@ return (
               : <Navigate to="/" replace /> } />
         <Route path="/tour" element={<TourView /> } />
         <Route path="/deck" element={user ? <Deck /> : <Navigate to="/" />} />
-
         <Route path="/discogs/training" element={user ? <DiscogsTraining /> : <Navigate to="/" />} />
         <Route path="/discogs/oof" element={user ? <DiscogsOOF /> : <Navigate to="/" />} />
         <Route path="/discogs/catalog" element={user ? <DiscogsCatalogTraining /> : <Navigate to="/" />} />
         <Route path="/discogs/knapsack" element={user ? <DiscogsKnapsack /> : <Navigate to="/" />} />
         <Route path="/discogs/knapsack/compare" element={user ? <DiscogsKnapsackComparison /> : <Navigate to="/" />} />
-\       <Route path="/ebay/buyitnow" element={user ? <EbayBuyItNow /> : <Navigate to="/" />} />
-        <Route path="/ebay/keepers" element={user ? <EbayKeepers /> : <Navigate to="/" />} />
-    
-
-
         <Route path="/" />
       </Routes>
     </Router>

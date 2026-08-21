@@ -1,10 +1,14 @@
+import csv
 import json
+import re
 import time
 import torch
 import pickle
 import random
 import numpy as np
+import traceback
 import anthropic
+from pathlib import Path
 from decouple import config
 from sklearn.metrics.pairwise import cosine_similarity as pairwise_cosine_similarity
 
@@ -18,11 +22,11 @@ from rest_framework.response import Response
 
 from sklearn.metrics.pairwise import cosine_similarity
 
-from .models import (DiscogsRecord, DiscogsListing, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance, 
-                     ThresholdConfig, BatchPerformance, TfIdfDB, Todo, EbayBatchPerformance,
-                     KnapsackWeights, DiscogsSeller, KnapsackSession)
+from .models import (DiscogsRecord, DiscogsListing, DiscogsSeller, EbayListing, BanditModel as BanditModelDB, BanditTrainingInstance,
+                     ThresholdConfig, BatchPerformance, TfIdfDB, EbayBatchPerformance,
+                     KnapsackWeights, KnapsackSession, EbayFirstPassModel)
 from .training import BanditTrainer
-from .knapsack import knapsack, score_and_filter_seller_listings
+from .knapsack import knapsack, score_and_filter_seller_listings, weighted_score
 from .features import RecordFeatureExtractor
 from .bandit_selection import adaptive_batch_selection
 from .enhance_listings import LookupByID
@@ -30,23 +34,69 @@ from .text_utils import create_mock_ebay_title, normalize_title
 from .title_vectorizer import TitleVectorizer
 from .utils.calculate_optimal_threshold import calculate_optimal_threshold
 from .utils.get_user_inventory import get_inventory
-from .utils.non_embedding_scoring import non_embedding_scoring
 from .discogs_client import authenticate_client
+from .ebay.ebay_training_data.train_ebay_classifier import EbayFirstPassClassifier
+from .training import trainer
 
-trainer = BanditTrainer()
+ebay_classifier = EbayFirstPassClassifier()
 feedback_buffer = []
+
+DISCOGS_SCRAPES_DIR = Path(__file__).resolve().parent / 'discogs_scrapes'
+
+def save_scrape_csv(seller, results):
+    """Dump one by-seller scrape to <seller>_<date>.csv for a durable record outside the DB."""
+    try:
+        DISCOGS_SCRAPES_DIR.mkdir(parents=True, exist_ok=True)
+        safe_seller = re.sub(r'[^A-Za-z0-9_-]', '_', seller)
+        date_str = timezone.now().strftime('%Y-%m-%d')
+        path = DISCOGS_SCRAPES_DIR / f"{safe_seller}{date_str}.csv"
+
+        fieldnames = [
+            'discogs_id', 'listing_id', 'artist', 'title', 'label', 'catno', 'year',
+            'format', 'genres', 'styles', 'wants', 'haves', 'media_condition',
+            'suggested_price', 'price', 'currency', 'score', 'wanted', 'wantlist',
+        ]
+        with open(path, 'w', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+            writer.writeheader()
+            for item in results:
+                row = dict(item)
+                for key in ('format', 'genres', 'styles'):
+                    if isinstance(row.get(key), list):
+                        row[key] = '; '.join(str(v) for v in row[key])
+                writer.writerow(row)
+    except Exception as e:
+        print(f"Could not write scrape CSV for seller {seller}: {e}")
+
+@api_view(['POST'])
+def ebay_classify(request):
+    try:
+        listings = request.data.get('listings', [])
+        if not listings:
+            return Response({'error': 'no listings provided'}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not ebay_classifier.clf:
+            if not ebay_classifier.load_latest_model():
+                ebay_classifier.train_new_model()
+        
+        results = ebay_classifier.classify(listings)
+        return Response({'listings': results})
+
+    except Exception as e:
+        traceback.print_exc()
+        return Response(
+            {'error': f'classification failed: {str(e)}'},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+            
 
 @api_view(['POST'])
 def predict(request):
     try:
-        print("📥 Predict endpoint called")
-        records = request.data.get('records', [])
-        print(f"📊 Received {len(records)} records")
-        
+        records = request.data.get('records', [])        
         if not records:
             return Response({'error': 'No records provided'}, status=status.HTTP_400_BAD_REQUEST)
     
-        print("🔄 Loading model...")
         if not trainer.model:
             if not trainer.load_latest_model():
                 return Response({
@@ -668,7 +718,6 @@ def ebay_title_similarity_filter(request):
         title = listing.get('ebay_title', '')
         ebay_id = listing.get('ebay_id', '')
         normalized = normalize_title(title)
-        print(f"title={title!r}, ebay_id={ebay_id!r}, normalized={normalized!r}")  # add this
         if normalized and ebay_id:
             ebay_titles.append(normalized)
             ebay_ids.append(ebay_id)
@@ -952,6 +1001,7 @@ def by_seller(request):
     ALLOWED_CONDITIONS = [
         'Near Mint (NM or M-)',
         'Very Good Plus (VG+)',
+        'Very Good (VG)',
     ]
 
     if not seller:
@@ -959,21 +1009,213 @@ def by_seller(request):
 
     unfiltered_inventory = get_inventory(seller)
     inventory = [item for item in unfiltered_inventory
-                 if item.get('media_condition') in ALLOWED_CONDITIONS]
+                 if item.get('media_condition') in ALLOWED_CONDITIONS
+                 and 'LP' in (item.get('format') or [])]
     if not inventory:
         return Response({'seller': seller, 'total': 0, 'results': []})
 
-    scored = non_embedding_scoring(inventory)
+    existing_flags = {
+        r['discogs_id']: r
+        for r in DiscogsRecord.objects.filter(
+            discogs_id__in=[item['discogs_id'] for item in inventory]
+        ).values('discogs_id', 'wanted', 'wantlist', 'evaluated', 'wantlist_evaluated')
+    }
+    for item in inventory:
+        flags = existing_flags.get(item['discogs_id'])
+        item['wanted'] = flags['wanted'] if flags else False
+        item['wantlist'] = flags['wantlist'] if flags else False
+        item['evaluated'] = flags['evaluated'] if flags else False
+        item['wantlist_evaluated'] = flags['wantlist_evaluated'] if flags else False
+
+    scored = weighted_score(inventory)
     scored.sort(key=lambda x: x['score'], reverse=True)
 
     for item in scored:
         item['score'] = float(item['score'])
-        item['price'] = float(item['price'])
+
+    save_scrape_csv(seller, scored)
 
     return Response({
         'seller': seller,
         'total': len(scored),
         'results': scored,
+    })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def by_seller_saved(request):
+    seller = request.query_params.get('seller')
+
+    ALLOWED_CONDITIONS = [
+        'Near Mint (NM or M-)',
+        'Very Good Plus (VG+)',
+        'Very Good (VG)',
+    ]
+
+    if not seller:
+        return Response({'error': 'seller is required'}, status=400)
+
+    listings = DiscogsListing.objects.filter(seller__name=seller).select_related('record')
+
+    inventory = [
+        {
+            'listing_id': listing.id,
+            'discogs_id': listing.record.discogs_id,
+            'media_condition': listing.media_condition,
+            'record_price': f"{listing.record_price}, {listing.currency}",
+            'seller': seller,
+            'artist': listing.record.artist,
+            'title': listing.record.title,
+            'label': listing.record.label,
+            'catno': listing.record.catno,
+            'wants': listing.record.wants,
+            'haves': listing.record.haves,
+            'genres': listing.record.genres,
+            'styles': listing.record.styles,
+            'year': listing.record.year,
+            'suggested_price': listing.record.suggested_price,
+            'format': listing.record.format,
+            'wanted': listing.record.wanted,
+            'wantlist': listing.record.wantlist,
+            'evaluated': listing.record.evaluated,
+            'wantlist_evaluated': listing.record.wantlist_evaluated,
+        }
+        for listing in listings
+        if listing.media_condition in ALLOWED_CONDITIONS
+        and 'LP' in (listing.record.format or [])
+    ]
+
+    if not inventory:
+        return Response({'seller': seller, 'total': 0, 'results': []})
+
+    scored = weighted_score(inventory)
+    scored.sort(key=lambda x: x['score'], reverse=True)
+
+    for item in scored:
+        item['score'] = float(item['score'])
+
+    return Response({
+        'seller': seller,
+        'total': len(scored),
+        'results': scored,
+    })
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def discogs_annotate(request):
+    annotations = request.data.get('annotations', [])
+    if not annotations:
+        return Response({'error': 'No annotations'}, status=400)
+
+    keeper_ids = []
+    non_keeper_ids = []
+    wantlisted_ids = []
+    unwantlisted_ids = []
+
+    errors = []
+    training_instances = []
+
+    discogs_wants_client = None
+    discogs_identity = None
+
+    for annotation in annotations:
+        discogs_id = annotation.get('discogs_id')
+        keeper = annotation.get('keeper')
+        wantlist = annotation.get('wantlist')
+        prob = annotation.get('probability')
+
+        if keeper is None and wantlist is None:
+            continue
+
+        record, _ = DiscogsRecord.objects.get_or_create(
+            discogs_id=discogs_id,
+            defaults={
+                'artist': annotation.get('artist', ''),
+                'title': annotation.get('title', ''),
+                'label': annotation.get('label', ''),
+                'catno': annotation.get('catno'),
+                'wants': annotation.get('wants', 0),
+                'haves': annotation.get('haves', 0),
+                'genres': annotation.get('genres', []),
+                'styles': annotation.get('styles', []),
+                'year': annotation.get('year'),
+                'suggested_price': str(annotation.get('suggested_price') or ''),
+            }
+        )
+
+        if keeper is not None:
+            record.wanted = keeper
+            record.evaluated = True
+
+            if keeper:
+                keeper_ids.append(discogs_id)
+            else:
+                non_keeper_ids.append(discogs_id)
+
+            if prob is not None:
+                training_instances.append({
+                    'id': record.id,
+                    'predicted': prob,
+                    'actual': keeper,
+                    'context': {
+                        'artist': annotation.get('artist', ''),
+                        'title': annotation.get('title', ''),
+                        'label': annotation.get('label', ''),
+                        'genres': annotation.get('genres', []),
+                        'styles': annotation.get('styles', []),
+                        'wants': annotation.get('wants', 0),
+                        'haves': annotation.get('haves', 0),
+                        'year': annotation.get('year'),
+                        'suggested_price': annotation.get('suggested_price'),
+                        'media_condition': annotation.get('media_condition'),
+                    }
+                })
+
+        if wantlist is not None:
+            record.wantlist_evaluated = True
+            try:
+                if discogs_wants_client is None:
+                    discogs_wants_client = authenticate_client()
+                    discogs_identity = discogs_wants_client.identity()
+                release = discogs_wants_client.release(int(discogs_id))
+                if wantlist:
+                    discogs_identity.wantlist.add(release)
+                    wantlisted_ids.append(discogs_id)
+                else:
+                    discogs_identity.wantlist.remove(release)
+                    unwantlisted_ids.append(discogs_id)
+                record.wantlist = wantlist
+            except Exception as e:
+                print(f"discogs_annotate: could not update wantlist for {discogs_id}: {e}")
+                errors.append(f"Could not update wantlist for {discogs_id}: {e}")
+
+        record.save()
+
+    training_result = {'model_updated': False, 'message': 'no keepers with probs to train on'}
+    if training_instances:
+        model_ready = trainer.model is not None or trainer.load_latest_model()
+        if model_ready:
+            training_result = trainer.update_model_online(training_instances)
+        else:
+            training_result = {'model_updated': False, 'message': 'no trained model available'}
+
+    return Response({
+        'success': True,
+        'keepers': len(keeper_ids),
+        'non_keepers': len(non_keeper_ids),
+        'keeper_ids': keeper_ids,
+        'wantlisted': len(wantlisted_ids),
+        'wantlisted_ids': wantlisted_ids,
+        'unwantlisted': len(unwantlisted_ids),
+        'unwantlisted_ids': unwantlisted_ids,
+        'errors': errors if errors else None,
+        'training': {
+            'model_updated': training_result.get('model_updated', False),
+            'accuracy': training_result.get('accuracy'),
+            'updated_threshold': training_result.get('updated_threshold'),
+            'batch_keeper_rate': training_result.get('batch_keeper_rate'),
+            'message': training_result.get('message'),
+        },
     })
 
 @api_view(['GET'])

@@ -10,6 +10,8 @@ export interface EbayListing {
   media_condition: string;
   genres: string;
   styles: string;
+  source: string;
+  keeper_score: number;
 }
 
 export interface EbayScoredListing {
