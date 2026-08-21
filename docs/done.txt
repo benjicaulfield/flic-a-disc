@@ -1,0 +1,68 @@
+DONE
+
+A running log of what actually shipped, in plain terms. Newest at the bottom. This is not the sprint plan (docs/august-sprint.txt) — it's the record of what's real.
+
+
+2026-08-21 — Day 1
+
+Reconciled six months of diverged git history. Local main and origin/main
+had split back in Jan/Mar 2026 after a hard reset discarded ~24 shared
+commits; local had since accumulated a giant June 29 snapshot commit no one
+ever pushed. Audited all 22 files both sides touched since the fork —
+confirmed origin had nothing local didn't already supersede or contain
+under a renamed path. Tagged origin's old tip (pre-reconcile-backup,
+permanently recoverable) and force-pushed local over it.
+
+Found and removed ~1.3GB of data dumps that had landed straight in git
+history during that giant commit (ml/bandit/data/lp_catalog.json at 983MB,
+plus two more catalog/RAG files over GitHub's 100MB hard limit) — the
+push was rejected until these were stripped. Also found and removed a
+stray 36MB compiled Go binary that had been committed by accident.
+
+Triaged the untracked file pile left over after the above. Found
+frontend/src/components/EbayTab.tsx — the shared component Auction and
+BuyItNow both import — was never tracked in git at all; a fresh clone
+would have failed to build. Committed it along with six real Django
+migrations, new management commands, the eBay classifier training
+scripts, and the sprint/session docs. Deleted two unrelated files that
+had nothing to do with this project (a personal workout list at
+sellers.txt, a stray "zines" dataset).
+
+Landed and pushed a large pile of pending feature work that had been
+sitting uncommitted in the working tree the whole time — the actual eBay
+pipeline redesign and tab updates from the July session, never committed:
+main.go, the eBay client and handlers, models.go, the three daily-use
+tabs, several ml/bandit files. This was the real bulk of "current
+progress" and it had never made it into git history until today.
+
+Ran the first real deploy since February and found (and fixed) five
+separate production bugs along the way, none of which deploy.sh alone
+would ever have caught:
+
+  - Migration 0041 failed on Postgres: couldn't cast an empty-string
+    default to jsonb. Fixed with an explicit RunSQL + USING clause,
+    verified in a dry-run transaction against production before applying.
+  - Migration 0050 failed the same way, but worse: a price column had
+    currency text embedded in it ("20.0, USD"). Fixed, and in the
+    process recovered real currency data (USD/EUR/GBP/BRL/SEK) that had
+    been sitting unpopulated in its own dedicated column the whole time.
+  - Migration 0052 failed on real schema drift — django_migrations
+    claimed a column existed that the live table never actually had.
+    Fixed with SeparateDatabaseAndState so it's correct regardless of
+    which environment's database it runs against.
+  - deploy.sh built the Go binary from the wrong path (a bug that
+    predated all of this) and printed "Deployment complete" even when
+    the remote script failed partway through. Fixed both.
+  - The frontend build was broken: an invalid tsconfig option
+    (ignoreDeprecations set to a TypeScript version that doesn't exist
+    yet), a stray include pointing tsc at dead files under archive/,
+    and an orphaned hook file with a real undefined-variable bug that
+    had been silently failing every build.
+  - The Python venv itself was broken: every installed console script
+    (gunicorn included) had its interpreter path hardcoded to the old
+    pre-rename python_services/ directory. Rebuilt clean.
+
+End state: origin/main and local main match, the droplet is running
+current code for the first time since February, all three services
+(flic-go, flic-django, nginx) confirmed active, site returns 200,
+API returns 401 as expected when unauthenticated.
