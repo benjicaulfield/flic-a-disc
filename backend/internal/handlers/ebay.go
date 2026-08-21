@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -647,4 +648,31 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 			"stage2_enriched":   enrichedCount,
 		},
 	})
+}
+
+func (h *Handler) EbayAnnotateHandler(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request"})
+		return
+	}
+
+	httpReq, err := http.NewRequest("POST", h.GetMLURL()+"/ml/ebay/annotate/", bytes.NewBuffer(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build request"})
+		return
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 20 * time.Minute}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		log.Printf("ML service error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", respBody)
 }
