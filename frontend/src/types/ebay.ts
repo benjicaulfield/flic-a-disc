@@ -12,6 +12,8 @@ export interface EbayListing {
   styles: string;
   source: string;
   keeper_score: number;
+  wanted: boolean | null;
+  evaluated: boolean;
 }
 
 export interface EbayScoredListing {

@@ -657,7 +657,7 @@ func (h *Handler) EbayAnnotateHandler(c *gin.Context) {
 		return
 	}
 
-	httpReq, err := http.NewRequest("POST", h.GetMLURL()+"/ml/ebay/annotate/", bytes.NewBuffer(body))
+	httpReq, err := http.NewRequest("POST", h.GetMLURL()+"/ml/ebay/annotated/", bytes.NewBuffer(body))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to build request"})
 		return
