@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { DataTable } from '@/components/DataTable/DataTable';
+import { AnnotationCell } from '@/components/AnnotationCell';
 import { apiFetch } from '../../../api/client';
 import type { ColumnDef } from '@tanstack/react-table';
 import type { DiscogsListing } from '../../../types/discogs';
+import type { Annotation } from '../../../types/common';
 import GenericForm from '../../../components/Form';
 import { joinList, money } from '../utils';
 
 const STORAGE_KEY = 'discogs_by_seller_results'
 type SellerValues = { sellername: string; };
-type Annotation = { keeper?: boolean; wantlist?: boolean };
 
 function loadCached(): { seller: string; results: DiscogsListing[] } | null {
   try {
@@ -39,33 +40,14 @@ export function BySeller(_props: { isActive: boolean }) {
     });
   };
 
-  const renderAnnotationCell = (row: DiscogsListing, field: keyof Annotation) => {
-    const override = annotations[row.listing_id]?.[field];
-    const dbValue = field === 'keeper' ? row.wanted : row.wantlist;
-    const dbEvaluated = field === 'keeper' ? row.evaluated : row.wantlist_evaluated;
-
-    if (override === undefined && dbEvaluated && !dbValue) {
-      return (
-        <button
-          type="button"
-          onClick={() => toggleAnnotation(row, field)}
-          title="Evaluated — not a match. Click to change."
-          className="h-4 w-4 flex items-center justify-center text-red-400 hover:text-red-500 text-sm leading-none"
-        >
-          ✕
-        </button>
-      );
-    }
-
-    return (
-      <input
-        type="checkbox"
-        className="h-4 w-4"
-        checked={override ?? dbValue ?? false}
-        onChange={() => toggleAnnotation(row, field)}
-      />
-    );
-  };
+  const renderAnnotationCell = (row: DiscogsListing, field: keyof Annotation) => (
+    <AnnotationCell
+      dbValue={field === 'keeper' ? row.wanted : row.wantlist}
+      dbEvaluated={field === 'keeper' ? row.evaluated : row.wantlist_evaluated}
+      override={annotations[row.listing_id]?.[field]}
+      onToggle={() => toggleAnnotation(row, field)}
+    />
+  );
 
   const columns: ColumnDef<DiscogsListing>[] = [
     { accessorKey: 'artist',           header: 'Artist',     size: 200 },
