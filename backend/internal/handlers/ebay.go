@@ -147,8 +147,8 @@ func (h *EbayHandler) fetchAndCacheAuctions() error {
 			Format:         models.StringSlice{format},
 			Year:           year,
 			MediaCondition: recordCondition,
-			Genre:          genre,
-			Style:          style,
+			Genres:         models.StringSlice{genre},
+			Styles:         models.StringSlice{style},
 			Source:         "auction",
 			KeeperScore:    l.KeeperScore,
 		}
@@ -237,8 +237,8 @@ func (h *EbayHandler) fetchAndCacheBIN() error {
 			Format:         models.StringSlice{format},
 			Year:           year,
 			MediaCondition: recordCondition,
-			Genre:          genre,
-			Style:          style,
+			Genres:         models.StringSlice{genre},
+			Styles:         models.StringSlice{style},
 			Source:         "bin",
 			KeeperScore:    l.KeeperScore,
 		}
@@ -424,8 +424,8 @@ func (h *EbayHandler) SaveSelectedListings(c *gin.Context) {
 			Format:         models.StringSlice{format},
 			Year:           year,
 			MediaCondition: recordCondition,
-			Genre:          genre,
-			Style:          style,
+			Genres:         models.StringSlice{genre},
+			Styles:         models.StringSlice{style},
 		}
 
 		if err := h.db.Where(models.EbayListing{EbayID: ebayID}).
@@ -624,8 +624,8 @@ func (h *EbayHandler) RecommendEbayListings(c *gin.Context) {
 			"artist":     listing.Artist,
 			"album":      listing.Title,
 			"label":      listing.Label,
-			"genre":      listing.Genre,
-			"style":      listing.Style,
+			"genre":      listing.Genres,
+			"style":      listing.Styles,
 			"year":       listing.Year,
 			"format":     listing.Format,
 			"condition":  listing.MediaCondition,

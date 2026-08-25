@@ -106,8 +106,8 @@ type EbayListing struct {
 	Format         StringSlice `gorm:"type:jsonb;default:'[]'" json:"format"`
 	Year           string      `json:"year"`
 	MediaCondition string      `json:"media_condition"`
-	Genre          string      `json:"genre"`
-	Style          string      `json:"style"`
+	Genres         StringSlice `gorm:"type:jsonb;default:'[]'" json:"genres"`
+	Styles         StringSlice `gorm:"type:jsonb;default:'[]'" json:"styles"`
 	Source         string      `gorm:"uniqueIndex:idx_ebay_id_source" json:"source"`
 	KeeperScore    float64     `json:"keeper_score"`
 	ScrapedAt      time.Time   `json:"scraped_at"`
