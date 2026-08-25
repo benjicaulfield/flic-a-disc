@@ -81,3 +81,5 @@ export interface LandingPageProps {
   onLogin: (user: User) => void;
   onLogout: () => void;
 }
+
+export type Annotation = { keeper?: boolean; wantlist?: boolean };
