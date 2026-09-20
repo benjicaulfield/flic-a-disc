@@ -30,6 +30,22 @@ class DiscogsRecord(models.Model):
 class DiscogsSeller(models.Model):
     name = models.CharField(max_length=255)
     currency = models.CharField(max_length=8)
+    # Country/region string from the scrape's seller.shipsFrom, captured on
+    # import. Not a reliable domestic/foreign signal on its own (a seller
+    # can price in USD and still ship from abroad -- currency != origin).
+    ships_from = models.CharField(max_length=100, null=True, blank=True)
+    # Curated from sellers_sorted.json via the sync_seller_shipping command,
+    # not derived from the scrape -- Discogs doesn't expose these via API.
+    free_shipping_min_amount = models.FloatField(null=True, blank=True)
+    free_shipping_min_currency = models.CharField(max_length=8, null=True, blank=True)
+    free_shipping_min_usd = models.FloatField(null=True, blank=True)
+    # Annotated cost of shipping 5 LPs together in one order -- a single
+    # reference-order-size number instead of a base+per-item model, since
+    # sellers don't publish a clean marginal rate.
+    flat_rate_amount = models.FloatField(null=True, blank=True)
+    flat_rate_currency = models.CharField(max_length=8, null=True, blank=True)
+    flat_rate_usd = models.FloatField(null=True, blank=True)
+    shipping_notes = models.TextField(blank=True, default='')
 
     class Meta:
         db_table = 'discogs_discogsseller'
@@ -40,6 +56,22 @@ class DiscogsListing(models.Model):
     record_price = models.FloatField()
     currency = models.CharField(max_length=255, default="")
     media_condition = models.CharField(max_length=255)
+    sleeve_condition = models.CharField(max_length=255, blank=True, default="")
+    # Discogs marketplace item ID (their itemId) -- lets us upsert a specific
+    # listing idempotently. Null for older rows saved via the by-seller
+    # inventory scrape, which never captured this.
+    discogs_listing_id = models.CharField(max_length=255, null=True, blank=True, unique=True)
+    # When the seller listed it for sale on Discogs (not when we scraped it).
+    listed_date = models.DateTimeField(null=True, blank=True)
+    # Denormalized copy of the seller's shipping fields, propagated in bulk
+    # by sync_seller_shipping so per-listing queries don't need a join.
+    ships_from = models.CharField(max_length=100, null=True, blank=True)
+    free_shipping_min_amount = models.FloatField(null=True, blank=True)
+    free_shipping_min_currency = models.CharField(max_length=8, null=True, blank=True)
+    free_shipping_min_usd = models.FloatField(null=True, blank=True)
+    flat_rate_amount = models.FloatField(null=True, blank=True)  # cost of shipping 5 LPs together
+    flat_rate_currency = models.CharField(max_length=8, null=True, blank=True)
+    flat_rate_usd = models.FloatField(null=True, blank=True)
 
     class Meta:
         db_table = 'discogs_discogslisting'

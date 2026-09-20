@@ -41,37 +41,38 @@ proxy in front of it, same shape as DiscogsAnnotateHandler (discogs_byseller.go:
     POSTing to mlURL+"/ml/ebay/annotated/".
 [x] Register it in main.go's protected group, next to the other /ebay/ routes (~line 84-87):
     protected.POST("/ebay/annotate", ebayHandler.AnnotateHandler)
-[ ] Build check:
+[x] Build check:
     cd backend && go build ./...
-[ ] Test it directly against a real row, bypassing the frontend (grab a real ebay_id from the DB
+[x] Test it directly against a real row, bypassing the frontend (grab a real ebay_id from the DB
     first):
     cd ml && uv run python manage.py shell -c "from bandit.models import EbayListing; print(EbayListing.objects.first().ebay_id)"
     curl -X POST http://localhost:8080/api/ebay/annotate -H "Content-Type: application/json" -b "<your session cookie — copy from browser devtools after logging in locally>" -d '{"annotations":[{"ebay_id":"<id from above>","label":true}]}'
-[ ] Confirm the write landed:
+[x] Confirm the write landed:
     cd ml && uv run python manage.py shell -c "from bandit.models import EbayListing; l=EbayListing.objects.get(ebay_id='<id>'); print(l.evaluated, l.wanted)"
 
 Day 3 (Aug 23) — Wire the EbayTab annotation UI
 
 Files: frontend/src/components/EbayTab.tsx
 
-[ ] Add annotation state keyed by ebay_id, mirroring BySeller.tsx's Record<number, Annotation>
+[x] Add annotation state keyed by ebay_id, mirroring BySeller.tsx's Record<number, Annotation>
     pattern (BySeller.tsx:29) — here it's simpler, just Record<string, boolean>.
-[ ] Add a checkbox column, rendered when annotating is true — look at how BySeller.tsx injects its
+[x] Add a checkbox column, rendered when annotating is true — look at how BySeller.tsx injects its
     keeper/wantlist columns (renderAnnotationCell, lines 42-68) for the pattern, though eBay only
     needs one boolean per row, not two.
-[ ] Add a Submit button next to the existing Annotate toggle (EbayTab.tsx:93-102), disabled when no
+[x] Add a Submit button next to the existing Annotate toggle (EbayTab.tsx:93-102), disabled when no
     annotations are set, calling a new submitAnnotations function.
-[ ] Payload shape must match Django's ebay_annotate exactly: { annotations: allResults.map(r => ({
+[x] Payload shape must match Django's ebay_annotate exactly: { annotations: allResults.map(r => ({
     ebay_id: r.ebay_id, label: annotations[r.ebay_id] ?? false })) }. Unclicked-but-shown rows
     submit label: false — explicit negative, same rule BySeller enforces (see the comment at
     BySeller.tsx:187-189).
-[ ] Wire submit to POST /api/ebay/annotate (Day 2), display the response's keepers/non_keepers
+[x] Wire submit to POST /api/ebay/annotate (Day 2), display the response's keepers/non_keepers
     counts.
-[ ] Run the frontend locally while testing:
+[x] Run the frontend locally while testing:
     cd frontend && npm run dev
-[ ] Manual test: load Auction, toggle Annotate, check a couple of boxes, Submit, confirm the count
+[x] Manual test: load Auction, toggle Annotate, check a couple of boxes, Submit, confirm the count
     message renders and the DB rows update. Repeat on BuyItNow — same component, confirm it's
     genuinely one implementation not two.
+??? what about caching for ebay tabs?
 
 Day 4 (Aug 24) — Add retrain-on-annotate for eBay (the real remaining gap)
 

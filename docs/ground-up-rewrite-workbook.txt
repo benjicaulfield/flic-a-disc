@@ -1,0 +1,400 @@
+GROUND-UP REWRITE — 30 days, by hand, no exceptions
+
+Scope locked in before Day 1: code is rewritten from zero (models, views, handlers,
+components, training/scraping logic — all hand-retyped, not ported). Same stack (Go +
+Django ML service + React/Vite + Postgres) — this isn't a technology problem, it's a
+detachment problem. No marketplace. Exactly two pages when this is done: landing page
+and deck. Everything that used to be its own page (dashboard, the Discogs*Training
+pages, the tour) becomes a deck tab, a section, or gets cut outright.
+
+One assumption stated explicitly rather than left silent: "from zero" means the CODE.
+The real data underneath it — the Discogs catalog, years of scraped eBay/Discogs
+listings, actual labeled training examples, the 199+ seller shipping-policy rows you
+hand-researched into sellers_sorted.json — gets preserved and imported once into the
+new schema, not regenerated from scratch. Re-collecting years of real market data in
+30 days isn't the point of this exercise; owning the code that touches it is. If that's
+wrong, say so before Day 2 and this gets cut.
+
+
+WEEK 1 (Sep 20-26) — FOUNDATIONS: EMPTY SHELL, REAL SCHEMA, REAL DATA PRESERVED
+
+Day 1 (Sep 20) — Cut the rewrite loose from main
+
+Files: repo-wide
+
+[ ] Tag current main as the permanent reference point before touching anything — this
+    is where the real ML numbers, the hard-won Postgres migration fixes, and the
+    working deploy pipeline live if you ever need to look something up:
+    git tag pre-rewrite-reference main && git push origin pre-rewrite-reference
+[ ] Branch off: git checkout -b rewrite/ground-up. Old main stays exactly as-is and
+    keeps serving https://flic-a-disc.com untouched until Day 29's cutover — no reason
+    to take the real, working site down while you rebuild underneath it.
+[ ] Gut, don't delete, the three service trees on this branch. Keep go.mod/
+    pyproject.toml/package.json identity (same module paths — deploy.sh needs minimal
+    changes at cutover) but strip application code to nothing:
+      backend/cmd/api/main.go  → bare gin router, one route: GET /api/health
+      ml/                      → fresh Django project, settings.py trimmed to the
+                                  essentials, no bandit app carried over
+      frontend/                → App.tsx down to two routes: / (landing) and /deck,
+                                  both placeholder divs
+[ ] Build-clean check on the gutted skeleton — this is your new floor, everything
+    after this only adds to a codebase that already builds clean:
+    cd backend && go build ./... && cd ../ml && uv run python manage.py check && cd ../frontend && npx tsc --noEmit
+
+Day 2 (Sep 21) — Fresh schema, decide what data survives
+
+Files: ml/core/models.py (new), new migration 0001
+
+[ ] Hand-write the first models — only what you know you need this week: Release
+    (catalog metadata), Listing (source, price, seller, condition), Seller (name,
+    plus the shipping fields you already designed and proved out: ships_from,
+    free_shipping_min_amount/currency/usd, flat_rate_amount/currency/usd,
+    shipping_notes). Nothing else yet — no kanban, no bandit weights, no marketplace
+    tables, no 66-migration sprawl.
+[ ] New schema, not the old migration history — a clean start you can actually read:
+    createdb records_v2   (or CREATE SCHEMA v2 inside the existing records database —
+    your call)
+    cd ml && uv run python manage.py makemigrations core && uv run python manage.py migrate
+[ ] Hand-write one, one-time import script that pulls the real historical rows worth
+    keeping from the OLD database into the new schema. This is data preservation, not
+    code reuse — write the query and mapping logic yourself:
+    cd ml && uv run python manage.py import_legacy_data --source-db records --target-db records_v2
+    Carry over: the Discogs catalog + enriched_training labels, real scraped eBay/
+    Discogs listings, the seller shipping-policy rows (sellers_sorted.json /
+    DiscogsSeller). Let everything else — old bandit weights, annotations tied to
+    retired logic — not survive.
+[ ] Verify counts, not just "it ran": new-table row counts roughly match what you
+    expect from the tables you chose to carry over.
+
+Day 3 (Sep 22) — Auth, from scratch
+
+Files: backend/internal/handlers/auth.go (rewritten)
+
+[ ] Rewrite auth by hand — JWT issue/verify, login, /me. Read the old auth.go for the
+    exact behavior worth keeping (session length, cookie flags) but retype every line
+    yourself rather than copying the file over.
+[ ] One new real account, created end to end through the new flow. Confirm
+    GET /api/auth/me returns it.
+
+Day 4 (Sep 23) — Single deck shell, empty tabs
+
+Files: frontend/src/features/deck/ (rebuilt)
+
+[ ] Rebuild the shell pieces every tab leans on, once, correctly: TabBar, a tab
+    registry, a generic typed DataTable with real empty-state and pagination. Get
+    these right before a single tab has real data — three tabs quietly drifting apart
+    from a shared component was exactly the bloat you're cutting.
+[ ] Every tab renders its shell (a form or a trigger button, an empty table) and
+    nothing else yet.
+
+Day 5 (Sep 24) — Discogs by-seller scrape, hand-rewritten
+
+Files: ml/core/discogs/inventory.py (new), backend proxy handler
+
+[ ] Rewrite get_inventory by hand against the real Discogs API — but don't reproduce
+    the bug that broke it in production: no interactive input() fallback inside a
+    request handler, ever. If no token exists, fail loudly with an actionable error
+    message instead of blocking on stdin.
+[ ] Token handling: same OAuth 1.0a flow, but the one-time authorize step is a
+    documented manual command you run locally once —
+    uv run python manage.py discogs_authorize — never something a live request falls
+    into.
+[ ] Wire the By Seller tab to it end to end: form → Go proxy → Django → real Discogs
+    API → table, with a real seller name.
+
+Day 6 (Sep 25) — eBay scrape, hand-rewritten
+
+Files: backend/internal/ebay/client.go (new), ebay handlers
+
+[ ] Rewrite the eBay OAuth client-credentials exchange and the Browse API search call
+    by hand. Fix the known live bug while you're in there: sort=itemEndDate is
+    rejected by eBay's Browse API now (confirmed — it returns a warning and ignores
+    the param). Check eBay's current documented sort values before picking a
+    replacement; don't guess twice.
+[ ] Wire Auction and BuyItNow to one shared component, not two copies, from day one
+    this time.
+
+Day 7 (Sep 26) — Week 1 checkpoint
+
+[ ] By Seller, Auction, and BuyItNow all pull real live data into the new deck shell,
+    locally.
+[ ] Day 2's preserved-data import and this week's fresh scrapes coexist without
+    collision — same schema, both paths write clean rows.
+[ ] One sentence for the record: "The deck's three data sources are alive again, on a
+    schema I wrote by hand."
+
+
+WEEK 2 (Sep 27-Oct 3) — CLASSIFICATION, PRICING, ANNOTATION, THE SHIPPING SYSTEM
+
+Day 8 (Sep 27) — Annotation, one implementation
+
+Files: ml/core/views.py (annotate endpoint), frontend AnnotationCell
+
+[ ] Rewrite the annotate endpoint by hand as one function that works for any source
+    (Discogs, eBay) via a source field — not two near-duplicate view functions the way
+    discogs_annotate/ebay_annotate drifted apart before.
+[ ] Rewrite AnnotationCell and the checkbox-column pattern once, reused by every tab
+    that needs it.
+
+Day 9 (Sep 28) — Pricing formula
+
+Files: ml/core/pricing.py (new)
+
+[ ] Hand-write max_bid from the known-good formula — verify against your own real
+    numbers, don't trust memory:
+    def max_bid(sell_price, shipping=6.00):
+        fraction = 0.75 - 0.273 * math.exp(-0.02 * sell_price)
+        return sell_price * fraction - shipping
+[ ] Sanity check against the same four calibration points as before:
+    cd ml && uv run python -c "
+    from core.pricing import max_bid
+    for p in [30, 45, 100, 200]:
+        print(p, round(max_bid(p), 2))
+    "
+    expect roughly: 30→12, 45→22.76, 100→65.30, 200→143
+[ ] Surface Max Bid on all three tabs.
+
+Day 10 (Sep 29) — Classifier, retrained from real preserved data
+
+Files: ml/core/classifier.py (new)
+
+[ ] Hand-write the training pipeline against the preserved real labels from Day 2.
+    Same model family is fine (logistic regression / whatever the bandit approach
+    actually was) — the point is you write the training and eval code yourself, not
+    that you invent a new model for its own sake.
+[ ] Record real eval numbers from THIS run — not the old ROC AUC/PR AUC figures, those
+    belonged to the old model. Get fresh, honest numbers: ROC AUC, PR AUC, chosen
+    threshold, positive rate.
+[ ] Wire classify-on-scrape back into the eBay pipeline.
+
+Day 11 (Sep 30) — Retrain-on-annotate
+
+Files: ml/core/views.py
+
+[ ] Wire annotation submission to update the classifier. Decide incremental
+    (partial_fit) vs. synchronous full retrain by timing the real thing — same
+    discipline as last time: time it before assuming it's fast enough to block on.
+
+Day 12 (Oct 1) — Wantlist + shipping-annotation system, rebuilt clean
+
+Files: ml/core/wantlist.py, sellers_sorted.json import
+
+[ ] Rebuild the wantlist-scrape import and scored/sellers endpoints against the new
+    schema, using the real Seller shipping fields preserved on Day 2.
+[ ] Rebuild sync_seller_shipping and find_shipping_candidates against the new schema —
+    same logic you already designed and proved out, hand-retyped, not copy-pasted.
+[ ] Wantlist tab wired into the deck with real data.
+
+Day 13 (Oct 2) — Bloat sweep #1
+
+[ ] First real cut. Name every dead thing you find here as you encounter it — this is
+    the running list you asked for, it doesn't wait for a scheduled sweep day:
+      Candidates to evaluate: the DiscogsKnapsack/DiscogsKnapsackComparison/DiscogsOOF/
+      DiscogsCatalogTraining/DiscogsRankingTrainer pages, knapsack.py's OR-Tools
+      solver, TourView.
+[ ] For each: cut it, fold its one useful idea into a deck tab, or explicitly defer
+    with a one-line reason. No silent carry-forward — if it's not cut and not folded
+    in, write down why it's still open.
+
+Day 14 (Oct 3) — Week 2 checkpoint
+
+[ ] Annotate → retrain loop works end to end on real data.
+[ ] Wantlist/shipping system fully alive on the new schema.
+[ ] The bloat list has real entries in it, not zero.
+
+
+WEEK 3 (Oct 4-10) — THE DECK IS THE WHOLE PRODUCT
+
+Day 15 (Oct 4) — The ranked overview tab (old dashboard's one real idea)
+
+Files: frontend deck Overview tab (new)
+
+[ ] This is where UserDashboard.tsx's worthwhile piece lives now — not a separate
+    page, a tab. A ranked, cross-source Max Bid view (By Seller + Auction + BuyItNow
+    merged), as the deck's default/first tab.
+[ ] Decide client-side merge vs. one Go aggregating endpoint the same way as before —
+    try the client-side version first, it's cheaper and easy to upgrade later.
+
+Day 16 (Oct 5) — Browse tab, actually built this time
+
+Files: frontend deck Browse tab (was a stub before — this is new, not ported)
+
+[ ] Decide what Browse is for, in one sentence, before writing any code. Likely
+    candidate: browse the preserved Discogs catalog by filter, not a live scrape.
+    Whatever you pick, write the sentence down here first.
+
+Day 17 (Oct 6) — Visual system, once
+
+Files: frontend/src/components/
+
+[ ] Shared column styling, badge/score display, empty/loading states — write these
+    once now that 5-6 tabs lean on them, instead of three copies quietly drifting
+    apart like before.
+
+Day 18 (Oct 7) — Error and edge states
+
+[ ] Every tab: empty result sets, failed scrapes, zero annotations submitted, null
+    price/score fields. Guard once in the shared money()/joinList() equivalents,
+    verify each tab actually uses the shared version instead of reinventing it.
+
+Day 19 (Oct 8) — Scheduler, correct from the start
+
+Files: new systemd unit + timer (droplet)
+
+[ ] Nightly retrain as a timer from day one — not "the manual curl command" that never
+    got automated last time:
+    sudo tee /etc/systemd/system/flic-nightly-retrain.service <<'EOF'
+    [Unit]
+    Description=Flic-a-disc nightly classifier retrain
+    [Service]
+    Type=oneshot
+    ExecStart=/usr/bin/curl -X POST http://localhost:8000/ml/retrain/
+    EOF
+    sudo tee /etc/systemd/system/flic-nightly-retrain.timer <<'EOF'
+    [Unit]
+    Description=Run flic-nightly-retrain daily at 02:00
+    [Timer]
+    OnCalendar=*-*-* 02:00:00
+    Persistent=true
+    [Install]
+    WantedBy=timers.target
+    EOF
+    sudo systemctl daemon-reload && sudo systemctl enable --now flic-nightly-retrain.timer
+
+Day 20 (Oct 9) — Bloat sweep #2
+
+[ ] Second pass, this time with real tooling instead of just eyeballing it:
+    cd frontend && npx ts-prune | head -40
+    cd ml && uv run vulture core/ --min-confidence 80
+[ ] Anything with zero real call sites: cut it. Anything genuinely unclear, add it to
+    the running bloat list from Day 13 rather than guessing.
+
+Day 21 (Oct 10) — Week 3 checkpoint
+
+[ ] Every tab in the deck is real, wired, and visually consistent.
+[ ] The deck IS the dashboard now — no separate kanban/stats page exists anywhere in
+    the new tree.
+
+
+WEEK 4 (Oct 11-17) — LANDING PAGE, HARDENING, CUTOVER PREP
+
+Day 22 (Oct 11) — Landing page, from scratch
+
+Files: frontend/src/pages/landing/ (rewritten)
+
+[ ] The second and last page. Decide its one job before building it: public pitch +
+    login, or a public preview of the ranked overview. Pick one, not both half-done.
+
+Day 23 (Oct 12) — Route cleanup, confirm exactly two pages
+
+Files: frontend/src/App.tsx
+
+[ ] grep -n "Route" frontend/src/App.tsx — confirm the route table has exactly landing
+    + deck (plus auth callback routes if genuinely needed), nothing orphaned.
+
+Day 24 (Oct 13) — Test coverage on what's real
+
+[ ] cd backend && go test ./... -v
+    cd ml && uv run pytest -v
+    Cover what you'd actually regret breaking: annotate, max_bid, classifier retrain,
+    the shipping-sync commands.
+
+Day 25 (Oct 14) — Secrets and security sweep
+
+[ ] git log --all -p | grep -i "password\|secret\|api_key\|token" | head -50 on the
+    NEW branch specifically — a from-scratch rewrite is exactly when an old secret
+    gets accidentally retyped into a comment or test fixture. Skim for anything that
+    looks like a real credential, not a variable name.
+[ ] Console noise sweep on the new code, should be near zero since it's fresh:
+    grep -rn "console.log" frontend/src/ | wc -l
+    grep -rn "print(" ml/core/*.py | wc -l
+
+Day 26 (Oct 15) — Minimal CI
+
+Files: .github/workflows/ci.yml
+
+[ ] Three jobs, same shape as before: backend (go build/vet/test), frontend
+    (npm ci + tsc --noEmit), ml (uv sync + manage.py check + pytest). Green on this
+    branch before it ever merges to main.
+
+Day 27 (Oct 16) — docs/README.md + docs/ML.md, rewritten honestly
+
+[ ] New README describing the app that actually exists now: two pages, what each tab
+    does, how to run it.
+[ ] New docs/ML.md with Day 10's real fresh numbers — not the old model's numbers,
+    even if they happen to look similar.
+
+Day 28 (Oct 17) — Week 4 checkpoint / cutover rehearsal
+
+[ ] Full deploy dry run to a scratch path on the droplet (not the live domain yet) —
+    confirm deploy.sh, adjusted for the new tree, works clean end to end.
+[ ] Screenshot the two new pages side by side against the old app's equivalent
+    screens — the real before/after.
+
+
+DAYS 29-30 (Oct 18-19) — CUTOVER AND SHIP
+
+Day 29 (Oct 18) — Cutover
+
+[ ] Merge rewrite/ground-up → main. This is the moment the old app stops serving
+    https://flic-a-disc.com.
+[ ] ./deploy.sh for real, against the live domain.
+[ ] Confirm live: curl -sS https://flic-a-disc.com/api/health, all deck tabs return
+    real data, the annotate → retrain loop works against production.
+
+Day 30 (Oct 19) — Ship
+
+[ ] Tag the release: git tag v2.0.0-rewrite && git push origin v2.0.0-rewrite
+[ ] Write the real closing entry in docs/done.txt — same honest, specific style as
+    the Aug 21 entry: what broke, what you found, what's actually true now.
+[ ] Confirm the old app is still fully reachable at pre-rewrite-reference — this was a
+    rewrite, not a loss.
+
+
+DEFINITION OF DONE
+
+[ ] Exactly two pages exist: landing and deck. No /dashboard route, no orphaned
+    Discogs*Training pages anywhere in the tree.
+[ ] Every deck tab (Overview, By Seller, Browse, Auction, BuyItNow, Wantlist) pulls
+    real live or real preserved data — nothing left as a stub.
+[ ] Annotate → retrain works identically across every source, one implementation, not
+    two drifting copies.
+[ ] Max Bid is visible on every listing everywhere it appears.
+[ ] The shipping-annotation system (sellers_sorted.json / Seller shipping fields) is
+    alive on the new schema, not left behind in the old one.
+[ ] Nightly retrain runs on a timer, not a memory of a manual command.
+[ ] Zero functions with zero call sites in the new tree — verified with ts-prune/
+    vulture, not assumed.
+[ ] CI is green. README and docs/ML.md describe the app that actually exists now.
+[ ] Old code is fully preserved and reachable (tag + branch) — nothing destroyed.
+
+
+RULES FOR THIS REWRITE
+
+Code is rewritten from zero, by hand. Real historical data — the catalog, labels,
+scraped listings, the seller shipping research — is preserved and imported once, not
+regenerated. Re-collecting years of real market data in 30 days isn't the point;
+owning the code that touches it is.
+
+Two pages, no more. Landing and deck. Anything that used to be its own page becomes a
+tab, a section, or gets cut — decided explicitly every time, never carried forward by
+default just because it existed before.
+
+No marketplace. Out of scope for this rewrite, full stop.
+
+Log bloat as you hit it. Every dead function, unused page, or pointless abstraction
+gets a line in the nearest open day's bloat sweep the moment you notice it — don't
+wait for the scheduled sweep days.
+
+Old main is untouched and keeps serving the live site until Day 29. All the risk of
+this rewrite lives on the branch; production stays boring until cutover.
+
+One commit per day minimum, legible history.
+
+Protect the checkpoints: Sep 26, Oct 3, Oct 10, Oct 17. If a day slips, carry the
+task, protect the checkpoint.
+
+Verify before rebuilding, even in a from-scratch rewrite — read what the old code
+actually did before retyping it, especially around the two known landmines already
+found once: get_user_inventory's interactive-auth crash on a non-interactive server,
+and eBay's now-invalid sort=itemEndDate parameter.

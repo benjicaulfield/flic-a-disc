@@ -66,3 +66,85 @@ End state: origin/main and local main match, the droplet is running
 current code for the first time since February, all three services
 (flic-go, flic-django, nginx) confirmed active, site returns 200,
 API returns 401 as expected when unauthenticated.
+
+Fixed the "red line" tsconfig regression: the editor's own bundled
+TypeScript (newer than the 5.8.3 pinned in package.json) was flagging
+baseUrl as deprecated and suggesting ignoreDeprecations: "6.0" to
+silence it — the same invalid value that broke the real build earlier.
+Pointed VS Code at the project's actual TypeScript via
+.vscode/settings.json (gitignored/local-only, matching existing
+convention) instead of masking the warning with a setting that
+breaks CI.
+
+First self-driven deploy (user, not Claude) via the now-fixed
+deploy.sh. It worked end to end — but surfaced two more real gaps:
+
+  - EbayListing.keeper_score and .source were defined on the model
+    but never migrated at all (migration 0059 didn't exist). Both
+    fields are referenced throughout the eBay pipeline code; any
+    production query touching them would have thrown column-does-not-
+    exist. Turned out both already existed on the live table anyway —
+    added manually at some point, never recorded in django_migrations,
+    wrong shape (nullable, no defaults, keeper_score as numeric
+    instead of double precision). ebay_listings had 0 rows in
+    production, so no data to preserve: dropped the ad-hoc columns and
+    let a proper AddField migration recreate them correctly. Confirmed
+    with makemigrations --dry-run --check afterward: no drift left.
+  - backend/flic-go (the compiled Go binary) was still tracked in git
+    despite being added to .gitignore earlier — gitignore doesn't
+    untrack already-tracked files. deploy.sh's git add was re-
+    committing a binary diff on every deploy. Untracked it properly
+    (git rm --cached); rebuilt the binary on the droplet since
+    untracking + git reset --hard deleted the on-disk file (the
+    already-running process kept serving from its deleted-but-open
+    file handle in the meantime, so no actual downtime).
+
+Open item, not yet resolved: a self-driven commit ("catching up")
+added backend/csvs/ — 38 files, ~276K lines of eBay scrape CSVs — under
+a path .gitignore doesn't cover (it only matches backend/ebay_*.csv
+directly, not the new backend/csvs/ subdirectory). Not near GitHub's
+size limits, but it's the same category of noise removed on Day 1.
+Decision pending: add a gitignore rule and strip from history, or
+leave it.
+
+
+2026-08-24/25 — Day 3
+
+Extracted BySeller's inline renderAnnotationCell closure into a real,
+generic AnnotationCell component (dbValue/dbEvaluated/override/onToggle
+as props, no knowledge of row shape or field names) — first piece of
+generalizing the shared design across the eBay tabs and BySeller.
+Deleted features/deck/columns.ts along the way: an orphaned, unused
+file duplicating joinList/money and defining eBay column sets that
+didn't even match what EbayTab actually renders.
+
+Built out Day 3 fully: annotation state keyed by ebay_id, a checkbox
+column (via AnnotationCell) shown while annotating, a Submit button,
+and a submitAnnotations function matching Django's ebay_annotate
+payload shape exactly, on EbayTab.tsx (shared by Auction and BuyItNow).
+Found and fixed a real bug blocking it: the Go proxy posted to
+/ml/ebay/annotate/, but Django only serves /ml/ebay/annotated/ (extra
+"d") — every submission would have 404'd.
+
+Found and fixed a second real bug while working in the same area: the
+Go EbayListing struct still had Genre/Style as plain strings with
+json:"genre"/"style", never updated after migration 0052 renamed the
+underlying columns to genres/styles (plural). The frontend's
+baseEbayColumns has been reading genres/styles the whole time — the
+Genre/Style columns on Auction and BuyItNow have likely been rendering
+blank since that migration landed. Renamed to Genres/Styles as
+StringSlice/jsonb, mirroring the Format field's existing pattern.
+Verified production's genres/styles/format are already jsonb — no
+schema change needed, this only fixed what Go sends.
+
+Deploying the above surfaced one more gap: BySeller.tsx imported a
+type (Annotation) from types/common.ts that only existed in a local,
+uncommitted edit — passed local tsc -b clean (since the local file had
+it) but broke the droplet's build (TS2305) since the export had never
+actually been committed. Added the missing export (a small, clearly-
+needed addition, not scope creep into unrelated in-progress work) and
+redeployed clean.
+
+End state: origin/main and droplet both at 5adcd4d, all three services
+active, frontend and Go builds both clean, site 200, API 401 as
+expected.

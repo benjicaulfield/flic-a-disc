@@ -68,6 +68,9 @@ func main() {
 	{
 		protected.POST("/discogs/by-seller", h.BySellerHandler)
 		protected.GET("/discogs/by-seller/saved", h.BySellerSavedHandler)
+		protected.GET("/discogs/wantlist/scored", h.WantlistScoredHandler)
+		protected.GET("/discogs/wantlist/sellers", h.WantlistSellersHandler)
+		protected.POST("/discogs/wantlist/new-arrivals", h.WantlistNewArrivalsHandler)
 		protected.POST("/discogs/annotate", h.DiscogsAnnotateHandler)
 		protected.POST("/ebay/annotate", h.EbayAnnotateHandler)
 		protected.GET("/discogs/keepers", h.GetDiscogsKeepersPage)

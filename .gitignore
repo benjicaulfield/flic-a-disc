@@ -76,5 +76,19 @@ ml/bandit/discogs_scrapes/
 ml/bandit/ebay/ebay_training_data/*.csv
 ml/bandit/ebay/ebay_training_data/*.pkl
 
+# Wantlist scraper — session cookie, resume state, and saved pages/output
+ml/bandit/wantlist_scrape/auth_state.json
+ml/bandit/wantlist_scrape/checkpoint.txt
+ml/bandit/wantlist_scrape/pages/*.html
+ml/bandit/discogs_scrapes/wantlist_listings.csv
+
 # TypeScript incremental build cache
 frontend/.tsbuildinfo
+
+# One-off data cleanup working files (not project code)
+ml/data_cleanup/fetch_checkpoint.jsonl
+ml/data_cleanup/fetch.log
+ml/data_cleanup/progress.json
+flic-export/
+ml/data_cleanup/
+backend/csvs/

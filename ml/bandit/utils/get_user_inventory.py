@@ -19,14 +19,6 @@ LIMITER = RateLimiter(60)
 VINYL_FORMATS = {'LP', '7"', '12"', '10"', 'Vinyl'}
 
 def normalize_format(fmt):
-    """Return a flat list of individual format tokens.
-
-    The marketplace listing's embedded ``release.format`` is a comma-separated
-    string (e.g. ``"LP, Album, RE"``), while full-release data is already a list.
-    Both must be reduced to individual tokens (``["LP", "Album", "RE"]``) before
-    intersecting with VINYL_FORMATS, otherwise the whole comma-joined string is
-    compared as a single token and never matches.
-    """
     items = fmt if isinstance(fmt, list) else [fmt]
     tokens = []
     for item in items:
