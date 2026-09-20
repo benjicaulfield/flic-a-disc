@@ -83,7 +83,7 @@ ml/bandit/wantlist_scrape/pages/*.html
 ml/bandit/discogs_scrapes/wantlist_listings.csv
 
 # TypeScript incremental build cache
-frontend/.tsbuildinfo
+frontend/config/.tsbuildinfo
 
 # One-off data cleanup working files (not project code)
 ml/data_cleanup/fetch_checkpoint.jsonl
