@@ -26,7 +26,8 @@ from .models import (DiscogsRecord, DiscogsListing, DiscogsSeller, EbayListing, 
                      ThresholdConfig, BatchPerformance, TfIdfDB, EbayBatchPerformance,
                      KnapsackWeights, KnapsackSession, EbayFirstPassModel)
 from .training import BanditTrainer
-from .knapsack import knapsack, score_and_filter_seller_listings, weighted_score
+from .knapsack import knapsack, score_and_filter_seller_listings, weighted_score, parse_suggested_price
+from .wantlist_import import import_rows, rows_from_upload
 from .features import RecordFeatureExtractor
 from .bandit_selection import adaptive_batch_selection
 from .enhance_listings import LookupByID
@@ -1098,6 +1099,199 @@ def by_seller_saved(request):
         'seller': seller,
         'total': len(scored),
         'results': scored,
+    })
+
+# VG and up (Goldmine grading order: Poor < Fair < Good < Good Plus <
+# Very Good < Very Good Plus < Near Mint < Mint) -- excludes anything
+# below Very Good.
+WANTLIST_ALLOWED_CONDITIONS = [
+    'Very Good Plus (VG+)',
+    'Near Mint (NM or M-)',
+    'Mint (M)',
+]
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def wantlist_scored(request):
+    """Every imported wantlist marketplace listing (see the
+    import_wantlist_listings management command) in VG condition or
+    better, scored the same way as by-seller (demand + price-diff +
+    embedding), plus an explicit embedding_score and price_delta_pct
+    (listing price vs Discogs' suggested price, as a % of listing price
+    -- negative means it's listed under suggested price)."""
+    listings = DiscogsListing.objects.filter(
+        discogs_listing_id__isnull=False,
+        media_condition__in=WANTLIST_ALLOWED_CONDITIONS,
+    ).select_related('record', 'seller')
+
+    inventory = [
+        {
+            'listing_id': listing.discogs_listing_id,
+            'discogs_id': listing.record.discogs_id,
+            'media_condition': listing.media_condition,
+            'sleeve_condition': listing.sleeve_condition,
+            'record_price': f"{listing.record_price}, {listing.currency}",
+            'seller': listing.seller.name,
+            'artist': listing.record.artist,
+            'title': listing.record.title,
+            'label': listing.record.label,
+            'catno': listing.record.catno,
+            'wants': listing.record.wants,
+            'haves': listing.record.haves,
+            'genres': listing.record.genres,
+            'styles': listing.record.styles,
+            'year': listing.record.year,
+            'suggested_price': listing.record.suggested_price,
+            'format': listing.record.format,
+        }
+        for listing in listings
+    ]
+
+    if not inventory:
+        return Response({'total': 0, 'results': []})
+
+    scored = weighted_score(inventory)
+
+    for item in scored:
+        item['score'] = float(item['score'])
+        item['embedding_score'] = float(item.pop('probability'))
+
+        suggested = parse_suggested_price(item.get('suggested_price'))
+        # Overwrite with the cleaned number -- the raw DB value can be the
+        # legacy str(Price object) format ("<Price 77.49... 'USD'>"), which
+        # is what price_delta_pct is actually computed from, so the two
+        # must agree in the response.
+        item['suggested_price'] = suggested
+
+        price = item['price']  # weighted_score already converted this to USD
+        item['price_delta_pct'] = (
+            (price - suggested) / price * 100 if suggested is not None and price else None
+        )
+
+    scored.sort(key=lambda x: x['score'], reverse=True)
+
+    return Response({
+        'total': len(scored),
+        'results': scored,
+    })
+
+@api_view(['GET'])
+@permission_classes([AllowAny])
+def wantlist_sellers(request):
+    """Per-seller summary of imported wantlist listings in VG condition
+    or better: how many, and how good the deals are on average (price vs
+    Discogs suggested price, as a % of price -- negative is under
+    suggested). No embedding-model scoring here, just a cheap DB-driven
+    aggregate for a sidebar list."""
+    from .utils.get_exchange_rates import get_exchange_rates, convert_to_usd
+
+    listings = DiscogsListing.objects.filter(
+        discogs_listing_id__isnull=False,
+        media_condition__in=WANTLIST_ALLOWED_CONDITIONS,
+    ).select_related('record', 'seller')
+
+    rates = get_exchange_rates()
+    by_seller = {}
+
+    for listing in listings:
+        name = listing.seller.name
+        bucket = by_seller.setdefault(name, {'seller': name, 'listing_count': 0, '_deltas': []})
+        bucket['listing_count'] += 1
+
+        suggested = parse_suggested_price(listing.record.suggested_price)
+        if suggested is None or not listing.record_price:
+            continue
+
+        try:
+            price_usd = convert_to_usd(listing.record_price, listing.currency, rates)
+        except (KeyError, ZeroDivisionError, TypeError):
+            continue
+        if not price_usd:
+            continue
+
+        bucket['_deltas'].append((price_usd - suggested) / price_usd * 100)
+
+    results = []
+    for bucket in by_seller.values():
+        deltas = bucket.pop('_deltas')
+        bucket['priced_listing_count'] = len(deltas)
+        bucket['avg_price_delta_pct'] = sum(deltas) / len(deltas) if deltas else None
+        results.append(bucket)
+
+    results.sort(key=lambda b: (b['avg_price_delta_pct'] is None, b['avg_price_delta_pct']))
+
+    return Response({'total': len(results), 'results': results})
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def wantlist_new_arrivals(request):
+    """Drop one or more files -- either raw Discogs shop-page-api JSON
+    dumps or wantlist_listings.csv-shaped CSVs, auto-detected per file
+    (multipart field "files") -- and get back only the listings that are
+    brand new -- didn't already exist in the DB before this upload --
+    sorted by when the seller listed them. Runs the same import pipeline
+    as the import_wantlist_listings management command (upsert +
+    Discogs API backfill for any newly-seen release), just against the
+    uploaded files instead of files on disk."""
+    from .utils.get_exchange_rates import get_exchange_rates, convert_to_usd
+
+    files = request.FILES.getlist('files')
+    if not files:
+        return Response({'error': 'No files uploaded (expected multipart field "files")'}, status=400)
+
+    rows = []
+    for f in files:
+        text = f.read().decode('utf-8-sig', errors='replace')
+        rows.extend(rows_from_upload(f.name, text))
+
+    if not rows:
+        return Response({'error': 'No rows parsed from uploaded files'}, status=400)
+
+    log_lines = []
+    summary = import_rows(rows, log=log_lines.append)
+
+    new_listings = (
+        DiscogsListing.objects
+        .filter(
+            discogs_listing_id__in=summary['new_listing_ids'],
+            media_condition__in=WANTLIST_ALLOWED_CONDITIONS,
+        )
+        .select_related('record', 'seller')
+        .order_by('-listed_date')
+    )
+
+    rates = get_exchange_rates()
+    results = []
+    for listing in new_listings:
+        suggested = parse_suggested_price(listing.record.suggested_price)
+        try:
+            price_usd = convert_to_usd(listing.record_price, listing.currency, rates)
+        except (KeyError, ZeroDivisionError, TypeError):
+            price_usd = None
+        price_delta_pct = (
+            (price_usd - suggested) / price_usd * 100
+            if suggested is not None and price_usd else None
+        )
+        results.append({
+            'listing_id': listing.discogs_listing_id,
+            'artist': listing.record.artist,
+            'title': listing.record.title,
+            'seller': listing.seller.name,
+            'media_condition': listing.media_condition,
+            'sleeve_condition': listing.sleeve_condition,
+            'price': price_usd,
+            'suggested_price': suggested,
+            'price_delta_pct': price_delta_pct,
+            'listed_date': listing.listed_date,
+            'listing_url': f"https://www.discogs.com/shop/item/{listing.discogs_listing_id}",
+        })
+
+    return Response({
+        'files_processed': len(files),
+        'rows_parsed': summary['rows_parsed'],
+        'new_arrivals_count': len(results),
+        'results': results,
+        'log': log_lines,
     })
 
 @api_view(['POST'])

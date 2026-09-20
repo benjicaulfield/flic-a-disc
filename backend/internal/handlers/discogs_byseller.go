@@ -59,6 +59,64 @@ func (h *Handler) BySellerSavedHandler(c *gin.Context) {
 	c.Data(resp.StatusCode, "application/json", body)
 }
 
+// GET /discogs/wantlist/scored
+func (h *Handler) WantlistScoredHandler(c *gin.Context) {
+	resp, err := http.Get(h.GetMLURL() + "/ml/discogs/wantlist/scored/")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// GET /discogs/wantlist/sellers
+func (h *Handler) WantlistSellersHandler(c *gin.Context) {
+	resp, err := http.Get(h.GetMLURL() + "/ml/discogs/wantlist/sellers/")
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", body)
+}
+
+// POST /discogs/wantlist/new-arrivals
+// Multipart file upload proxy -- forwarded as raw bytes with the original
+// Content-Type (boundary and all) so Django can parse the multipart body.
+func (h *Handler) WantlistNewArrivalsHandler(c *gin.Context) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request"})
+		return
+	}
+
+	httpReq, err := http.NewRequest("POST", h.GetMLURL()+"/ml/discogs/wantlist/new-arrivals/", bytes.NewBuffer(body))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build request"})
+		return
+	}
+	httpReq.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+
+	// A big batch of brand-new releases needs Discogs API backfill at
+	// 60 calls/min, same rationale as by-seller's long timeout.
+	client := &http.Client{Timeout: 26 * time.Minute}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		log.Printf("ML service error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "ML service unavailable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	respBody, _ := io.ReadAll(resp.Body)
+	c.Data(resp.StatusCode, "application/json", respBody)
+}
+
 // POST /discogs/annotate
 func (h *Handler) DiscogsAnnotateHandler(c *gin.Context) {
 	body, err := io.ReadAll(c.Request.Body)

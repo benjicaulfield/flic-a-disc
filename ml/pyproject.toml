@@ -26,6 +26,7 @@ dependencies = [
     "lxml>=6.0.2",
     "setuptools>=80.9.0",
     "lightgbm>=4.6.0",
+    "bs4>=0.0.2",
 ]
 [tool.setuptools]
 packages = ["bandit", "config"]

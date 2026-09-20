@@ -53,6 +53,41 @@ export interface DiscogsSeller {
   currency: string;
 }
 
+export interface WantlistListing extends DiscogsListing {
+  sleeve_condition?: string;
+  embedding_score?: number;
+  price_delta_pct?: number | null;
+}
+
+export interface WantlistSellerSummary {
+  seller: string;
+  listing_count: number;
+  priced_listing_count: number;
+  avg_price_delta_pct: number | null;
+}
+
+export interface NewArrivalRow {
+  listing_id: string;
+  artist: string;
+  title: string;
+  seller: string;
+  media_condition: string;
+  sleeve_condition: string;
+  price: number | null;
+  suggested_price: number | null;
+  price_delta_pct: number | null;
+  listed_date: string | null;
+  listing_url: string;
+}
+
+export interface NewArrivalsResponse {
+  files_processed: number;
+  rows_parsed: number;
+  new_arrivals_count: number;
+  results: NewArrivalRow[];
+  log?: string[];
+}
+
 export interface DiscogsKeepersAPIResponse {
   listings: DiscogsListing[];
   count: number;

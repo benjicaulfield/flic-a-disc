@@ -1,4 +1,5 @@
 import math
+import re
 
 import torch
 import numpy as np
@@ -151,14 +152,30 @@ def demand_normalizer(inventory):
     max_demand = max(demand_scores) if demand_scores else 0
     return max_demand if max_demand > 0 else 1
 
+def parse_suggested_price(value):
+    """suggested_price is usually a plain numeric string, but some legacy
+    rows have str(Price object) baked in instead of str(Price.value)
+    (looks like "<Price 224.94... 'USD'>"). Handle both; return None for
+    anything else unparseable (blank, 'N/A', ...)."""
+    if not value:
+        return None
+    value = str(value)
+    if '<Price' in value:
+        match = re.search(r'<Price ([0-9.]+)', value)
+        return float(match.group(1)) if match else None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
 def price_diffs(listing):
     price, currency = parse_record_price(listing['record_price'])
     dollar_price = convert_to_usd(price, currency, RATES)
     # Use listing price as default if no suggested_price (no false signal)
-    sugg_price = listing.get('suggested_price')
-    if not sugg_price:
+    sugg_price = parse_suggested_price(listing.get('suggested_price'))
+    if sugg_price is None:
         sugg_price = dollar_price
-    return max(0, (float(sugg_price) - dollar_price))
+    return max(0, (sugg_price - dollar_price))
 
 def price_diff_normalizer(inventory):
     diffs = [price_diffs(listing) for listing in inventory]
