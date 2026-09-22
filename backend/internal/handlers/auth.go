@@ -34,10 +34,8 @@ type Claims struct {
 func NewAuthHandler(db *gorm.DB) *AuthHandler {
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
-		jwtSecret = "***REMOVED***"
+		log.Fatal("JWT_SECRET is not set -- refusing to start with no auth secret")
 	}
-
-	log.Printf("🔑 JWT Secret loaded: %s", jwtSecret) // ← Add this
 
 	return &AuthHandler{
 		db:        db,
