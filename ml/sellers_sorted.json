@@ -1391,9 +1391,7 @@
         "observed_single_item_price": 9.99,
         "observed_free_shipping_min": null,
         "notes": ""
-      }
-    ],
-    "flat_rate_to_annotate": [
+      },
       {
         "username": "ziben_records",
         "ships_from": "Canada",
@@ -1501,7 +1499,10 @@
         "observed_single_item_price": 12,
         "observed_free_shipping_min": null,
         "notes": ""
-      },
+      }
+    ],
+    "flat_rate_to_annotate": [
+      
       {
         "username": "BeatPoets",
         "ships_from": "Sweden",
@@ -1516,15 +1517,6 @@
         "ships_from": "Canada",
         "rate_5lp": null,
         "currency": "USD",
-        "observed_single_item_price": 12,
-        "observed_free_shipping_min": null,
-        "notes": ""
-      },
-      {
-        "username": "lovelylee1975",
-        "ships_from": "United Kingdom",
-        "rate_5lp": null,
-        "currency": "GBP",
         "observed_single_item_price": 12,
         "observed_free_shipping_min": null,
         "notes": ""
